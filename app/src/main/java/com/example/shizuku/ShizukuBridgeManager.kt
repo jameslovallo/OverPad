@@ -37,6 +37,9 @@ data class ShizukuStatus(
     val isServiceConnected: Boolean = false,
     val remoteUid: Int? = null,
     val uinputWritable: Boolean = false,
+    val virtualDeviceId: Int = -1,
+    val backendMode: String = "",
+    val diagnostics: String? = null,
     val injectedCount: Long = 0L,
     val lastError: String? = null
 ) {
@@ -49,12 +52,18 @@ data class ShizukuStatus(
             else -> ShizukuConnectionStage.CONNECTED
         }
 
+    val isHardwareSpoofed: Boolean
+        get() = isServiceConnected && virtualDeviceId > 0
+
     val modeLabel: String
         get() = when {
             stage != ShizukuConnectionStage.CONNECTED -> "Not Connected"
-            remoteUid == 0 && uinputWritable -> "Root Mode (UID 0 • /dev/uinput + INJECT_EVENTS)"
-            remoteUid == 0 -> "Root Mode (UID 0 • INJECT_EVENTS)"
-            else -> "Wireless ADB / Shell Mode (UID ${remoteUid ?: 2000} • INJECT_EVENTS)"
+            virtualDeviceId > 0 ->
+                "Spoofed Xbox Pad #$virtualDeviceId ($backendMode • UID ${remoteUid ?: 2000})"
+            remoteUid == 0 ->
+                "Root UID 0 • $backendMode"
+            else ->
+                "Shell UID ${remoteUid ?: 2000} • $backendMode"
         }
 }
 
@@ -94,10 +103,16 @@ class ShizukuBridgeManager(private val context: Context) {
             binderScope.launch {
                 val uid = runCatching { remote.uid }.getOrNull()
                 val uinput = runCatching { remote.isUinputWritable }.getOrDefault(false)
+                val deviceId = runCatching { remote.virtualDeviceId }.getOrDefault(-1)
+                val mode = runCatching { remote.backendMode }.getOrDefault("")
+                val diag = runCatching { remote.diagnostics }.getOrNull()
                 _status.value = _status.value.copy(
                     isServiceConnected = true,
                     remoteUid = uid,
                     uinputWritable = uinput,
+                    virtualDeviceId = deviceId,
+                    backendMode = mode,
+                    diagnostics = diag,
                     lastError = null
                 )
             }
@@ -108,7 +123,10 @@ class ShizukuBridgeManager(private val context: Context) {
             isBound = false
             _status.value = _status.value.copy(
                 isServiceConnected = false,
-                remoteUid = null
+                remoteUid = null,
+                virtualDeviceId = -1,
+                backendMode = "",
+                diagnostics = null
             )
         }
     }
@@ -207,6 +225,30 @@ class ShizukuBridgeManager(private val context: Context) {
         }
     }
 
+    fun reprobeVirtualGamepad() {
+        val remote = injector
+        if (remote == null) {
+            refreshStatusAndAutoConnect()
+            bindInjectorService()
+            return
+        }
+        binderScope.launch {
+            runCatching {
+                remote.ensureVirtualGamepad()
+                val deviceId = remote.virtualDeviceId
+                val mode = remote.backendMode
+                val diag = remote.diagnostics
+                _status.value = _status.value.copy(
+                    virtualDeviceId = deviceId,
+                    backendMode = mode,
+                    diagnostics = diag
+                )
+            }.onFailure { err ->
+                _status.value = _status.value.copy(lastError = err.message)
+            }
+        }
+    }
+
     fun unbindInjectorService() {
         runCatching {
             injector?.resetAll()
@@ -214,7 +256,13 @@ class ShizukuBridgeManager(private val context: Context) {
         }
         injector = null
         isBound = false
-        _status.value = _status.value.copy(isServiceConnected = false, remoteUid = null)
+        _status.value = _status.value.copy(
+            isServiceConnected = false,
+            remoteUid = null,
+            virtualDeviceId = -1,
+            backendMode = "",
+            diagnostics = null
+        )
     }
 
     fun pushXInputState(state: XInputState) {

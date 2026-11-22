@@ -2,7 +2,6 @@ package com.example.shizuku
 
 import android.annotation.SuppressLint
 import android.hardware.input.InputManager
-import android.os.Process
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.InputEvent
@@ -11,20 +10,43 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import androidx.annotation.Keep
 import com.example.xinput.XInputState
+import java.io.BufferedWriter
 import java.io.File
+import java.io.OutputStreamWriter
 import java.lang.reflect.Method
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * Remote privileged service launched inside Shizuku (shell UID 2000 or root UID 0).
- * Translates OverPad's XInput state into real system-wide KeyEvent & MotionEvent injections
- * via Android's INJECT_EVENTS privilege.
+ *
+ * Emulates a real connected Xbox hardware controller in Android's InputManager by spawning
+ * Android's built-in `/system/bin/uinput` (/dev/uinput) or `/system/bin/hid` (/dev/uhid)
+ * virtual device bridges so cloud streaming apps (GeForce NOW, Xbox Cloud, Steam Link)
+ * detect a physical controller, falling back to InputManager.injectInputEvent when locked.
  */
 @Keep
 class ShizukuXInputService() : IXInputInjector.Stub() {
 
+    enum class BackendMode {
+        UINPUT_XBOX360,
+        UHID_XBOX,
+        INJECT_EVENTS_ONLY
+    }
+
+    private val lock = Any()
+
     private var inputManagerInstance: Any? = null
     private var injectMethod: Method? = null
+
+    private var backendMode: BackendMode = BackendMode.INJECT_EVENTS_ONLY
+    private var virtualDeviceId: Int = -1
+    private var diagnosticsMessage: String = "Initializing bridge..."
+
+    private var bridgeProcess: Process? = null
+    private var bridgeWriter: BufferedWriter? = null
+    @Volatile
+    private var lastProcessError: String? = null
 
     private var prevButtonsMask = 0
     private var prevLtDown = false
@@ -37,24 +59,22 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
     private var prevRT = 0f
     private var prevHatX = 0f
     private var prevHatY = 0f
-
     private var motionDownTime = 0L
 
     init {
         initInjectorReflection()
+        ensureVirtualGamepad()
     }
 
     @SuppressLint("PrivateApi", "DiscouragedPrivateApi")
     private fun initInjectorReflection() {
         runCatching {
-            // Android 14+ moved injectInputEvent to InputManagerGlobal
             val globalClass = runCatching {
                 Class.forName("android.hardware.input.InputManagerGlobal")
             }.getOrNull()
 
             if (globalClass != null) {
-                val getInstance = globalClass.getMethod("getInstance")
-                val instance = getInstance.invoke(null)
+                val instance = globalClass.getMethod("getInstance").invoke(null)
                 val method = globalClass.getMethod(
                     "injectInputEvent",
                     InputEvent::class.java,
@@ -65,10 +85,8 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
                 return
             }
 
-            // Android 7 - 13
             val imClass = InputManager::class.java
-            val getInstance = imClass.getMethod("getInstance")
-            val instance = getInstance.invoke(null)
+            val instance = imClass.getMethod("getInstance").invoke(null)
             val method = imClass.getMethod(
                 "injectInputEvent",
                 InputEvent::class.java,
@@ -79,11 +97,244 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
         }
     }
 
-    override fun getUid(): Int = Process.myUid()
+    override fun getUid(): Int = android.os.Process.myUid()
 
     override fun isUinputWritable(): Boolean {
         val f = File("/dev/uinput")
         return f.exists() && f.canWrite()
+    }
+
+    override fun getBackendMode(): String = synchronized(lock) { backendMode.name }
+
+    override fun getVirtualDeviceId(): Int = synchronized(lock) {
+        if (virtualDeviceId > 0 && InputDevice.getDevice(virtualDeviceId) == null) {
+            virtualDeviceId = findMatchingGamepadDeviceId(
+                preferredVendor = VirtualXboxHidProtocol.MICROSOFT_VID,
+                preferredProducts = setOf(
+                    VirtualXboxHidProtocol.XBOX_360_USB_PID,
+                    VirtualXboxHidProtocol.XBOX_UHID_PID
+                ),
+                excludedIds = emptySet()
+            )
+        }
+        virtualDeviceId
+    }
+
+    override fun getDiagnostics(): String = synchronized(lock) { diagnosticsMessage }
+
+    override fun ensureVirtualGamepad(): Boolean = synchronized(lock) {
+        if (bridgeProcess?.isAlive == true && virtualDeviceId > 0 && InputDevice.getDevice(virtualDeviceId) != null) {
+            return true
+        }
+        closeBridgeProcessLocked()
+
+        val uinputError: String?
+        if (tryStartUinputXbox360Locked()) {
+            return true
+        } else {
+            uinputError = lastProcessError
+        }
+
+        val uhidError: String?
+        if (tryStartUhidXboxLocked()) {
+            return true
+        } else {
+            uhidError = lastProcessError
+        }
+
+        backendMode = BackendMode.INJECT_EVENTS_ONLY
+        virtualDeviceId = -1
+        diagnosticsMessage = buildString {
+            append("Using INJECT_EVENTS fallback (no kernel virtual controller). ")
+            if (!uinputError.isNullOrBlank()) append("uinput: $uinputError. ")
+            if (!uhidError.isNullOrBlank()) append("uhid: $uhidError.")
+        }.trim()
+        false
+    }
+
+    private fun tryStartUinputXbox360Locked(): Boolean {
+        val uinputCmd = if (File("/system/bin/uinput").exists()) {
+            listOf("/system/bin/uinput", "-")
+        } else {
+            listOf(
+                "sh",
+                "-c",
+                "CLASSPATH=/system/framework/uinput.jar app_process /system/bin com.android.commands.uinput.Uinput -"
+            )
+        }
+        return startBridgeAndVerifyLocked(
+            command = uinputCmd,
+            mode = BackendMode.UINPUT_XBOX360,
+            registerJson = VirtualXboxHidProtocol.buildUinputRegisterJson(1),
+            delayJson = VirtualXboxHidProtocol.buildUhidDelayJson(1, 100),
+            expectedPid = VirtualXboxHidProtocol.XBOX_360_USB_PID,
+            sendNeutralState = {
+                writeLineLocked(
+                    VirtualXboxHidProtocol.buildUinputInjectJson(
+                        1,
+                        listOf(
+                            VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_X, 0,
+                            VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_Y, 0,
+                            VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_Z, 0,
+                            VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_RX, 0,
+                            VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_RY, 0,
+                            VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_RZ, 0,
+                            VirtualXboxHidProtocol.EV_SYN, VirtualXboxHidProtocol.SYN_REPORT, 0
+                        )
+                    )
+                )
+            }
+        )
+    }
+
+    private fun tryStartUhidXboxLocked(): Boolean {
+        val hidCmd = if (File("/system/bin/hid").exists()) {
+            listOf("/system/bin/hid", "-")
+        } else {
+            listOf(
+                "sh",
+                "-c",
+                "CLASSPATH=/system/framework/hid.jar app_process /system/bin com.android.commands.hid.Hid -"
+            )
+        }
+        return startBridgeAndVerifyLocked(
+            command = hidCmd,
+            mode = BackendMode.UHID_XBOX,
+            registerJson = VirtualXboxHidProtocol.buildUhidRegisterJson(1),
+            delayJson = VirtualXboxHidProtocol.buildUhidDelayJson(1, 100),
+            expectedPid = VirtualXboxHidProtocol.XBOX_UHID_PID,
+            sendNeutralState = {
+                val neutral = VirtualXboxHidProtocol.buildUhidReportBytes(
+                    0, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f
+                )
+                writeLineLocked(VirtualXboxHidProtocol.buildUhidReportJson(1, neutral))
+            }
+        )
+    }
+
+    private fun startBridgeAndVerifyLocked(
+        command: List<String>,
+        mode: BackendMode,
+        registerJson: String,
+        delayJson: String,
+        expectedPid: Int,
+        sendNeutralState: () -> Unit
+    ): Boolean {
+        lastProcessError = null
+        val beforeIds = InputDevice.getDeviceIds().toSet()
+        val proc = runCatching {
+            ProcessBuilder(command)
+                .redirectErrorStream(true)
+                .start()
+        }.getOrElse { err ->
+            lastProcessError = err.message ?: "spawn failed"
+            return false
+        }
+
+        // Drain stdout+stderr asynchronously so subprocess pipes never block
+        Thread {
+            runCatching {
+                proc.inputStream.bufferedReader().useLines { lines ->
+                    lines.forEach { line ->
+                        if (line.isNotBlank()) {
+                            lastProcessError = line.take(140)
+                        }
+                    }
+                }
+            }
+        }.apply {
+            isDaemon = true
+            start()
+        }
+
+        val writer = BufferedWriter(OutputStreamWriter(proc.outputStream))
+        bridgeProcess = proc
+        bridgeWriter = writer
+
+        val wrote = runCatching {
+            writer.write(registerJson)
+            writer.newLine()
+            writer.write(delayJson)
+            writer.newLine()
+            writer.flush()
+            true
+        }.getOrDefault(false)
+
+        if (!wrote) {
+            closeBridgeProcessLocked()
+            return false
+        }
+
+        // Poll InputDevice registration for up to ~1000ms
+        var resolvedId = -1
+        for (attempt in 0 until 15) {
+            if (!proc.isAlive) {
+                break
+            }
+            resolvedId = findMatchingGamepadDeviceId(
+                preferredVendor = VirtualXboxHidProtocol.MICROSOFT_VID,
+                preferredProducts = setOf(expectedPid),
+                excludedIds = beforeIds
+            )
+            if (resolvedId > 0) break
+            runCatching { Thread.sleep(70L) }
+        }
+
+        if (!proc.isAlive) {
+            if (lastProcessError.isNullOrBlank()) {
+                lastProcessError = "exited (${runCatching { proc.exitValue() }.getOrDefault(-1)})"
+            }
+            closeBridgeProcessLocked()
+            return false
+        }
+
+        if (resolvedId <= 0) {
+            // One final check in case InputReader added it without exact VID/PID match on OEM ROM
+            resolvedId = findAnyNewGamepadDeviceId(beforeIds)
+        }
+
+        if (resolvedId <= 0) {
+            lastProcessError = lastProcessError ?: "kernel did not expose InputDevice"
+            closeBridgeProcessLocked()
+            return false
+        }
+
+        backendMode = mode
+        virtualDeviceId = resolvedId
+        val devName = InputDevice.getDevice(resolvedId)?.name ?: mode.name
+        diagnosticsMessage = "Registered '$devName' (Device #$resolvedId) via ${mode.name}"
+        runCatching { sendNeutralState() }
+        return true
+    }
+
+    private fun findMatchingGamepadDeviceId(
+        preferredVendor: Int,
+        preferredProducts: Set<Int>,
+        excludedIds: Set<Int>
+    ): Int {
+        for (id in InputDevice.getDeviceIds()) {
+            val dev = InputDevice.getDevice(id) ?: continue
+            val isGamepad = (dev.sources and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
+                (dev.sources and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
+            if (!isGamepad) continue
+            if (dev.vendorId == preferredVendor && dev.productId in preferredProducts) {
+                if (excludedIds.isEmpty() || id !in excludedIds) {
+                    return id
+                }
+            }
+        }
+        return -1
+    }
+
+    private fun findAnyNewGamepadDeviceId(beforeIds: Set<Int>): Int {
+        for (id in InputDevice.getDeviceIds()) {
+            if (id in beforeIds) continue
+            val dev = InputDevice.getDevice(id) ?: continue
+            val isGamepad = (dev.sources and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
+                (dev.sources and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
+            if (isGamepad) return id
+        }
+        return -1
     }
 
     override fun sendGamepadState(
@@ -96,22 +347,178 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
         thumbRY: Float,
         hatX: Float,
         hatY: Float
+    ) = synchronized(lock) {
+        if (backendMode != BackendMode.INJECT_EVENTS_ONLY && bridgeProcess?.isAlive != true) {
+            closeBridgeProcessLocked()
+            backendMode = BackendMode.INJECT_EVENTS_ONLY
+            virtualDeviceId = -1
+        }
+
+        when (backendMode) {
+            BackendMode.UHID_XBOX -> sendViaUhidLocked(
+                buttonsMask, leftTrigger, rightTrigger,
+                thumbLX, thumbLY, thumbRX, thumbRY, hatX, hatY
+            )
+            BackendMode.UINPUT_XBOX360 -> sendViaUinputLocked(
+                buttonsMask, leftTrigger, rightTrigger,
+                thumbLX, thumbLY, thumbRX, thumbRY, hatX, hatY
+            )
+            BackendMode.INJECT_EVENTS_ONLY -> sendViaInjectEventsLocked(
+                buttonsMask, leftTrigger, rightTrigger,
+                thumbLX, thumbLY, thumbRX, thumbRY, hatX, hatY
+            )
+        }
+    }
+
+    private fun sendViaUhidLocked(
+        buttonsMask: Int,
+        leftTrigger: Float,
+        rightTrigger: Float,
+        thumbLX: Float,
+        thumbLY: Float,
+        thumbRX: Float,
+        thumbRY: Float,
+        hatX: Float,
+        hatY: Float
+    ) {
+        if (!hasStateChanged(buttonsMask, leftTrigger, rightTrigger, thumbLX, thumbLY, thumbRX, thumbRY, hatX, hatY)) {
+            return
+        }
+        updatePrevState(buttonsMask, leftTrigger, rightTrigger, thumbLX, thumbLY, thumbRX, thumbRY, hatX, hatY)
+
+        val report = VirtualXboxHidProtocol.buildUhidReportBytes(
+            buttonsMask = buttonsMask,
+            leftTrigger = leftTrigger,
+            rightTrigger = rightTrigger,
+            thumbLX = thumbLX,
+            thumbLY = thumbLY,
+            thumbRX = thumbRX,
+            thumbRY = thumbRY,
+            hatX = hatX,
+            hatY = hatY
+        )
+        if (!writeLineLocked(VirtualXboxHidProtocol.buildUhidReportJson(1, report))) {
+            fallbackToInjectEventsLocked(
+                buttonsMask, leftTrigger, rightTrigger,
+                thumbLX, thumbLY, thumbRX, thumbRY, hatX, hatY
+            )
+        }
+    }
+
+    private fun sendViaUinputLocked(
+        buttonsMask: Int,
+        leftTrigger: Float,
+        rightTrigger: Float,
+        thumbLX: Float,
+        thumbLY: Float,
+        thumbRX: Float,
+        thumbRY: Float,
+        hatX: Float,
+        hatY: Float
+    ) {
+        val events = mutableListOf<Int>()
+        val changedMask = prevButtonsMask xor buttonsMask
+        if (changedMask != 0) {
+            for ((bit, linuxCode) in XINPUT_BIT_TO_LINUX_KEY) {
+                if ((changedMask and bit) != 0) {
+                    events.add(VirtualXboxHidProtocol.EV_KEY)
+                    events.add(linuxCode)
+                    events.add(if ((buttonsMask and bit) != 0) 1 else 0)
+                }
+            }
+        }
+
+        val axisChanged = hasAxesChanged(leftTrigger, rightTrigger, thumbLX, thumbLY, thumbRX, thumbRY, hatX, hatY)
+        if (axisChanged) {
+            val lx = VirtualXboxHidProtocol.scaleStickInt16(thumbLX)
+            val ly = VirtualXboxHidProtocol.scaleStickInt16(thumbLY)
+            val rx = VirtualXboxHidProtocol.scaleStickInt16(thumbRX)
+            val ry = VirtualXboxHidProtocol.scaleStickInt16(thumbRY)
+            val lt = (leftTrigger.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
+            val rt = (rightTrigger.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
+            val hx = when {
+                hatX > 0.5f -> 1
+                hatX < -0.5f -> -1
+                else -> 0
+            }
+            val hy = when {
+                hatY > 0.5f -> 1
+                hatY < -0.5f -> -1
+                else -> 0
+            }
+
+            events.addAll(
+                listOf(
+                    VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_X, lx,
+                    VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_Y, ly,
+                    VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_Z, lt,
+                    VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_RX, rx,
+                    VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_RY, ry,
+                    VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_RZ, rt,
+                    VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_HAT0X, hx,
+                    VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_HAT0Y, hy
+                )
+            )
+        }
+
+        if (events.isEmpty()) return
+
+        updatePrevState(buttonsMask, leftTrigger, rightTrigger, thumbLX, thumbLY, thumbRX, thumbRY, hatX, hatY)
+        events.add(VirtualXboxHidProtocol.EV_SYN)
+        events.add(VirtualXboxHidProtocol.SYN_REPORT)
+        events.add(0)
+
+        if (!writeLineLocked(VirtualXboxHidProtocol.buildUinputInjectJson(1, events))) {
+            fallbackToInjectEventsLocked(
+                buttonsMask, leftTrigger, rightTrigger,
+                thumbLX, thumbLY, thumbRX, thumbRY, hatX, hatY
+            )
+        }
+    }
+
+    private fun fallbackToInjectEventsLocked(
+        buttonsMask: Int,
+        leftTrigger: Float,
+        rightTrigger: Float,
+        thumbLX: Float,
+        thumbLY: Float,
+        thumbRX: Float,
+        thumbRY: Float,
+        hatX: Float,
+        hatY: Float
+    ) {
+        closeBridgeProcessLocked()
+        backendMode = BackendMode.INJECT_EVENTS_ONLY
+        virtualDeviceId = -1
+        sendViaInjectEventsLocked(
+            buttonsMask, leftTrigger, rightTrigger,
+            thumbLX, thumbLY, thumbRX, thumbRY, hatX, hatY
+        )
+    }
+
+    private fun sendViaInjectEventsLocked(
+        buttonsMask: Int,
+        leftTrigger: Float,
+        rightTrigger: Float,
+        thumbLX: Float,
+        thumbLY: Float,
+        thumbRX: Float,
+        thumbRY: Float,
+        hatX: Float,
+        hatY: Float
     ) {
         val now = SystemClock.uptimeMillis()
 
-        // 1. KeyEvents for all button bit transitions
         val changedMask = prevButtonsMask xor buttonsMask
         if (changedMask != 0) {
             for ((bit, keyCode) in BUTTON_BIT_TO_KEYCODE) {
                 if ((changedMask and bit) != 0) {
-                    val isDown = (buttonsMask and bit) != 0
-                    injectKey(keyCode, isDown, now)
+                    injectKey(keyCode, (buttonsMask and bit) != 0, now)
                 }
             }
             prevButtonsMask = buttonsMask
         }
 
-        // Digital L2 / R2 key events alongside analog trigger axes (for maximum game compatibility)
         val ltDown = leftTrigger >= 0.5f
         if (ltDown != prevLtDown) {
             injectKey(KeyEvent.KEYCODE_BUTTON_L2, ltDown, now)
@@ -123,28 +530,7 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
             prevRtDown = rtDown
         }
 
-        // 2. MotionEvent for analog sticks, triggers, and D-Pad hat
-        val returningToZero =
-            (thumbLX == 0f && prevLX != 0f) ||
-                (thumbLY == 0f && prevLY != 0f) ||
-                (thumbRX == 0f && prevRX != 0f) ||
-                (thumbRY == 0f && prevRY != 0f) ||
-                (leftTrigger == 0f && prevLT != 0f) ||
-                (rightTrigger == 0f && prevRT != 0f) ||
-                (hatX == 0f && prevHatX != 0f) ||
-                (hatY == 0f && prevHatY != 0f)
-
-        val axisChanged = returningToZero ||
-            abs(thumbLX - prevLX) > AXIS_EPSILON ||
-                abs(thumbLY - prevLY) > AXIS_EPSILON ||
-                abs(thumbRX - prevRX) > AXIS_EPSILON ||
-                abs(thumbRY - prevRY) > AXIS_EPSILON ||
-                abs(leftTrigger - prevLT) > AXIS_EPSILON ||
-                abs(rightTrigger - prevRT) > AXIS_EPSILON ||
-                abs(hatX - prevHatX) > AXIS_EPSILON ||
-                abs(hatY - prevHatY) > AXIS_EPSILON
-
-        if (axisChanged) {
+        if (hasAxesChanged(leftTrigger, rightTrigger, thumbLX, thumbLY, thumbRX, thumbRY, hatX, hatY)) {
             prevLX = thumbLX
             prevLY = thumbLY
             prevRX = thumbRX
@@ -154,9 +540,7 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
             prevHatX = hatX
             prevHatY = hatY
 
-            if (motionDownTime == 0L) {
-                motionDownTime = now
-            }
+            if (motionDownTime == 0L) motionDownTime = now
 
             val props = arrayOf(
                 MotionEvent.PointerProperties().apply {
@@ -205,13 +589,108 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
         }
     }
 
-    override fun resetAll() {
+    private fun hasStateChanged(
+        buttonsMask: Int,
+        leftTrigger: Float,
+        rightTrigger: Float,
+        thumbLX: Float,
+        thumbLY: Float,
+        thumbRX: Float,
+        thumbRY: Float,
+        hatX: Float,
+        hatY: Float
+    ): Boolean {
+        val ltDown = leftTrigger >= 0.5f
+        val rtDown = rightTrigger >= 0.5f
+        return buttonsMask != prevButtonsMask ||
+            ltDown != prevLtDown ||
+            rtDown != prevRtDown ||
+            hasAxesChanged(leftTrigger, rightTrigger, thumbLX, thumbLY, thumbRX, thumbRY, hatX, hatY)
+    }
+
+    private fun hasAxesChanged(
+        leftTrigger: Float,
+        rightTrigger: Float,
+        thumbLX: Float,
+        thumbLY: Float,
+        thumbRX: Float,
+        thumbRY: Float,
+        hatX: Float,
+        hatY: Float
+    ): Boolean {
+        val returningToZero =
+            (thumbLX == 0f && prevLX != 0f) ||
+                (thumbLY == 0f && prevLY != 0f) ||
+                (thumbRX == 0f && prevRX != 0f) ||
+                (thumbRY == 0f && prevRY != 0f) ||
+                (leftTrigger == 0f && prevLT != 0f) ||
+                (rightTrigger == 0f && prevRT != 0f) ||
+                (hatX == 0f && prevHatX != 0f) ||
+                (hatY == 0f && prevHatY != 0f)
+
+        return returningToZero ||
+            abs(thumbLX - prevLX) > AXIS_EPSILON ||
+            abs(thumbLY - prevLY) > AXIS_EPSILON ||
+            abs(thumbRX - prevRX) > AXIS_EPSILON ||
+            abs(thumbRY - prevRY) > AXIS_EPSILON ||
+            abs(leftTrigger - prevLT) > AXIS_EPSILON ||
+            abs(rightTrigger - prevRT) > AXIS_EPSILON ||
+            abs(hatX - prevHatX) > AXIS_EPSILON ||
+            abs(hatY - prevHatY) > AXIS_EPSILON
+    }
+
+    private fun updatePrevState(
+        buttonsMask: Int,
+        leftTrigger: Float,
+        rightTrigger: Float,
+        thumbLX: Float,
+        thumbLY: Float,
+        thumbRX: Float,
+        thumbRY: Float,
+        hatX: Float,
+        hatY: Float
+    ) {
+        prevButtonsMask = buttonsMask
+        prevLtDown = leftTrigger >= 0.5f
+        prevRtDown = rightTrigger >= 0.5f
+        prevLX = thumbLX
+        prevLY = thumbLY
+        prevRX = thumbRX
+        prevRY = thumbRY
+        prevLT = leftTrigger
+        prevRT = rightTrigger
+        prevHatX = hatX
+        prevHatY = hatY
+    }
+
+    private fun writeLineLocked(line: String): Boolean {
+        val writer = bridgeWriter ?: return false
+        return runCatching {
+            writer.write(line)
+            writer.newLine()
+            writer.flush()
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun closeBridgeProcessLocked() {
+        runCatching { bridgeWriter?.close() }
+        bridgeWriter = null
+        runCatching { bridgeProcess?.destroy() }
+        bridgeProcess = null
+    }
+
+    override fun resetAll() = synchronized(lock) {
         sendGamepadState(0, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
         motionDownTime = 0L
     }
 
     override fun destroy() {
-        runCatching { resetAll() }
+        synchronized(lock) {
+            runCatching { resetAll() }
+            closeBridgeProcessLocked()
+            virtualDeviceId = -1
+        }
         System.exit(0)
     }
 
@@ -243,6 +722,19 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
     companion object {
         private const val INJECT_INPUT_EVENT_MODE_ASYNC = 0
         private const val AXIS_EPSILON = 0.004f
+
+        private val XINPUT_BIT_TO_LINUX_KEY = listOf(
+            XInputState.XINPUT_GAMEPAD_A to VirtualXboxHidProtocol.BTN_A,
+            XInputState.XINPUT_GAMEPAD_B to VirtualXboxHidProtocol.BTN_B,
+            XInputState.XINPUT_GAMEPAD_X to VirtualXboxHidProtocol.BTN_X,
+            XInputState.XINPUT_GAMEPAD_Y to VirtualXboxHidProtocol.BTN_Y,
+            XInputState.XINPUT_GAMEPAD_LEFT_SHOULDER to VirtualXboxHidProtocol.BTN_TL,
+            XInputState.XINPUT_GAMEPAD_RIGHT_SHOULDER to VirtualXboxHidProtocol.BTN_TR,
+            XInputState.XINPUT_GAMEPAD_BACK to VirtualXboxHidProtocol.BTN_SELECT,
+            XInputState.XINPUT_GAMEPAD_START to VirtualXboxHidProtocol.BTN_START,
+            XInputState.XINPUT_GAMEPAD_LEFT_THUMB to VirtualXboxHidProtocol.BTN_THUMBL,
+            XInputState.XINPUT_GAMEPAD_RIGHT_THUMB to VirtualXboxHidProtocol.BTN_THUMBR
+        )
 
         private val BUTTON_BIT_TO_KEYCODE = listOf(
             XInputState.XINPUT_GAMEPAD_DPAD_UP to KeyEvent.KEYCODE_DPAD_UP,

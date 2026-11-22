@@ -3,6 +3,10 @@ package com.example.shizuku;
 interface IXInputInjector {
     int getUid();
     boolean isUinputWritable();
+    String getBackendMode();
+    int getVirtualDeviceId();
+    String getDiagnostics();
+    boolean ensureVirtualGamepad();
     void sendGamepadState(
         int buttonsMask,
         float leftTrigger,

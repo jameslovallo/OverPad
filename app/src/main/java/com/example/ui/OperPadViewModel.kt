@@ -82,8 +82,7 @@ class OperPadViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun reconnectShizuku() {
-        shizukuBridge.refreshStatusAndAutoConnect()
-        shizukuBridge.bindInjectorService()
+        shizukuBridge.reprobeVirtualGamepad()
     }
 
     fun openShizukuApp(context: Context) {

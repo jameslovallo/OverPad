@@ -779,7 +779,11 @@ private fun ShizukuBridgeCard(
                         ) {
                             Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text(if (isConnected) "Verify Bridge" else "Reconnect")
+                            Text(
+                                if (shizukuStatus.isHardwareSpoofed) "Re-verify Pad"
+                                else if (isConnected) "Probe Virtual Pad"
+                                else "Reconnect"
+                            )
                         }
                     }
                 }
@@ -793,6 +797,31 @@ private fun ShizukuBridgeCard(
                     Icon(Icons.Default.RocketLaunch, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("Setup Wizard")
+                }
+            }
+
+            shizukuStatus.diagnostics?.takeIf { it.isNotBlank() }?.let { diag ->
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = SlateSurfaceElevated,
+                    border = BorderStroke(
+                        1.dp,
+                        if (shizukuStatus.isHardwareSpoofed) TacticalEmerald.copy(alpha = 0.45f)
+                        else TriggerAmber.copy(alpha = 0.45f)
+                    )
+                ) {
+                    Text(
+                        text = if (shizukuStatus.isHardwareSpoofed) {
+                            "Controller Visible to Games & GeForce NOW: $diag"
+                        } else {
+                            diag
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (shizukuStatus.isHardwareSpoofed) TacticalEmerald else TriggerAmber,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                    )
                 }
             }
         }

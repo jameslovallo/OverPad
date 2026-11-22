@@ -129,8 +129,22 @@ class OperPadEngineTest {
         assertEquals(ShizukuConnectionStage.CONNECTED, shellConnected.stage)
         assertTrue(shellConnected.modeLabel.contains("2000"))
 
-        val rootConnected = shellConnected.copy(remoteUid = 0, uinputWritable = true)
-        assertTrue(rootConnected.modeLabel.contains("/dev/uinput"))
+        val rootFallback = shellConnected.copy(
+            remoteUid = 0,
+            uinputWritable = true,
+            backendMode = "INJECT_EVENTS_ONLY"
+        )
+        assertFalse(rootFallback.isHardwareSpoofed)
+        assertTrue(rootFallback.modeLabel.contains("Root UID 0"))
+        assertTrue(rootFallback.modeLabel.contains("INJECT_EVENTS_ONLY"))
+
+        val hardwareSpoofed = shellConnected.copy(
+            virtualDeviceId = 14,
+            backendMode = "UHID_XBOX"
+        )
+        assertTrue(hardwareSpoofed.isHardwareSpoofed)
+        assertTrue(hardwareSpoofed.modeLabel.contains("Spoofed Xbox Pad #14"))
+        assertTrue(hardwareSpoofed.modeLabel.contains("UHID_XBOX"))
         assertEquals(
             rikka.shizuku.ShizukuProvider.MANAGER_APPLICATION_ID,
             com.example.shizuku.ShizukuBridgeManager.SHIZUKU_PACKAGE
@@ -152,5 +166,60 @@ class OperPadEngineTest {
         assertEquals(0.5f, captured[1].thumbLX, 0.001f)
         assertEquals(0, captured[2].buttonsMask)
         assertEquals(0f, captured[2].thumbLX, 0.001f)
+    }
+
+    @Test
+    fun virtualXboxHidProtocol_encodes14ByteReportsAndRegisterPayloads() {
+        val neutral = com.example.shizuku.VirtualXboxHidProtocol.buildUhidReportBytes(
+            0, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f
+        )
+        assertEquals(14, neutral.size)
+        assertEquals(0x01, neutral[0])
+        assertEquals(0, neutral[1])
+        assertEquals(0, neutral[2])
+        assertEquals(0, neutral[3]) // Null hat
+
+        val active = com.example.shizuku.VirtualXboxHidProtocol.buildUhidReportBytes(
+            buttonsMask = XInputState.XINPUT_GAMEPAD_A or
+                XInputState.XINPUT_GAMEPAD_X or
+                XInputState.XINPUT_GAMEPAD_RIGHT_SHOULDER or
+                XInputState.XINPUT_GAMEPAD_START,
+            leftTrigger = 1.0f,
+            rightTrigger = 0.5f,
+            thumbLX = 1.0f,
+            thumbLY = -1.0f,
+            thumbRX = 0.5f,
+            thumbRY = 0f,
+            hatX = 1f,
+            hatY = -1f
+        )
+        assertEquals(14, active.size)
+        // Byte 1 bits: A (bit 0 = 1), X (bit 3 = 8), RB (bit 7 = 128) => 137
+        assertEquals(1 or 8 or 128, active[1])
+        // Byte 2 bits: L2 (bit 8 -> bit 0 = 1), R2 (bit 9 -> bit 1 = 2), START (bit 11 -> bit 3 = 8) => 11
+        assertEquals(1 or 2 or 8, active[2])
+        // Hat NE = 2
+        assertEquals(2, active[3])
+        // LT = 255, RT = 128
+        assertEquals(255, active[12])
+        assertEquals(128, active[13])
+
+        val uhidReg = com.example.shizuku.VirtualXboxHidProtocol.buildUhidRegisterJson(1)
+        assertTrue(uhidReg.contains("\"command\":\"register\""))
+        assertTrue(uhidReg.contains("\"Xbox Wireless Controller\""))
+        assertTrue(uhidReg.contains("\"bus\":\"bluetooth\""))
+
+        val uhidReport = com.example.shizuku.VirtualXboxHidProtocol.buildUhidReportJson(1, active)
+        assertTrue(uhidReport.contains("\"command\":\"report\""))
+        assertTrue(uhidReport.contains("\"report\":[1,137,11,2,"))
+
+        val uinputReg = com.example.shizuku.VirtualXboxHidProtocol.buildUinputRegisterJson(1)
+        assertTrue(uinputReg.contains("\"UI_SET_ABSBIT\""))
+        assertTrue(uinputReg.contains("\"Microsoft X-Box 360 pad\""))
+        assertTrue(uinputReg.contains("\"abs_info\":["))
+
+        val uinputInject = com.example.shizuku.VirtualXboxHidProtocol.buildUinputInjectJson(1, listOf(1, 304, 1, 0, 0, 0))
+        assertTrue(uinputInject.contains("\"command\":\"inject\""))
+        assertTrue(uinputInject.contains("\"events\":[1,304,1,0,0,0]"))
     }
 }
