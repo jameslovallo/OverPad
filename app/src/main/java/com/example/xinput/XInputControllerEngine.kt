@@ -72,6 +72,9 @@ class XInputControllerEngine {
     private val _state = MutableStateFlow(XInputState())
     val state: StateFlow<XInputState> = _state.asStateFlow()
 
+    @Volatile
+    var onStateUpdated: ((XInputState) -> Unit)? = null
+
     val driverCapability: DriverCapabilityStatus = detectCapability()
 
     private fun detectCapability(): DriverCapabilityStatus {
@@ -289,6 +292,7 @@ class XInputControllerEngine {
             packetCounter = packetCounter
         )
         _state.value = next
+        onStateUpdated?.invoke(next)
 
         if (udpEnabled) {
             val packetBytes = next.toBinaryPacket()

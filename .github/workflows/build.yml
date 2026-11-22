@@ -1,4 +1,4 @@
-name: Build OperPad
+name: Build OverPad
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 env:
-  APP_NAME: OperPad
+  APP_NAME: OverPad
   PACKAGE_NAME: com.aistudio.operpad.k7m2x9
 
 jobs:
@@ -99,7 +99,7 @@ jobs:
     - name: Upload Build Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: operpad-debug
+        name: overpad-debug
         path: app/build/outputs/apk/debug/app-debug.apk
 
     # Auto tag the next patch release and publish a GitHub Release on push to main/master
@@ -118,7 +118,7 @@ jobs:
         git push origin "$NEW_TAG"
 
         APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
-        RELEASE_APK="OperPad-${NEW_TAG}.apk"
+        RELEASE_APK="OverPad-${NEW_TAG}.apk"
         cp "$APK_PATH" "$RELEASE_APK"
 
         gh release create "$NEW_TAG" "$RELEASE_APK" \

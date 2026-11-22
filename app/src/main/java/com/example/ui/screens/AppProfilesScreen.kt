@@ -232,7 +232,7 @@ fun AppProfilesScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = "Grant Usage Access so OperPad can detect which game or app is in the foreground.",
+                                    text = "Grant Usage Access so OverPad can detect which game or app is in the foreground.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = TextPrimary,
                                     modifier = Modifier.weight(1f)

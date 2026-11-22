@@ -20,7 +20,8 @@ data class OperPadUserSettings(
     val hapticFeedbackEnabled: Boolean = true,
     val udpBridgeEnabled: Boolean = false,
     val udpHost: String = "127.0.0.1",
-    val udpPort: Int = 26760
+    val udpPort: Int = 26760,
+    val hasCompletedOnboarding: Boolean = false
 )
 
 class OperPadPreferences(private val context: Context) {
@@ -31,6 +32,7 @@ class OperPadPreferences(private val context: Context) {
         val UDP_BRIDGE_ENABLED = booleanPreferencesKey("udp_bridge_enabled")
         val UDP_HOST = stringPreferencesKey("udp_host")
         val UDP_PORT = intPreferencesKey("udp_port")
+        val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
     }
 
     val settingsFlow: Flow<OperPadUserSettings> = context.operPadDataStore.data.map { prefs ->
@@ -40,7 +42,8 @@ class OperPadPreferences(private val context: Context) {
             hapticFeedbackEnabled = prefs[Keys.HAPTIC_FEEDBACK] ?: true,
             udpBridgeEnabled = prefs[Keys.UDP_BRIDGE_ENABLED] ?: false,
             udpHost = prefs[Keys.UDP_HOST] ?: "127.0.0.1",
-            udpPort = prefs[Keys.UDP_PORT] ?: 26760
+            udpPort = prefs[Keys.UDP_PORT] ?: 26760,
+            hasCompletedOnboarding = prefs[Keys.ONBOARDING_COMPLETED] ?: false
         )
     }
 
@@ -62,5 +65,9 @@ class OperPadPreferences(private val context: Context) {
             it[Keys.UDP_HOST] = host.ifBlank { "127.0.0.1" }
             it[Keys.UDP_PORT] = port.coerceIn(1024, 65535)
         }
+    }
+
+    suspend fun setOnboardingCompleted(completed: Boolean) {
+        context.operPadDataStore.edit { it[Keys.ONBOARDING_COMPLETED] = completed }
     }
 }

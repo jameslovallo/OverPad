@@ -6,6 +6,7 @@ import com.example.data.OperPadPreferences
 import com.example.data.OperPadRepository
 import com.example.model.ControllerPreset
 import com.example.model.DefaultPresets
+import com.example.shizuku.ShizukuBridgeManager
 import com.example.usage.ForegroundAppMonitor
 import com.example.xinput.XInputControllerEngine
 import kotlinx.coroutines.CoroutineScope
@@ -40,6 +41,8 @@ class OperPadApplication : Application() {
         private set
     lateinit var xInputEngine: XInputControllerEngine
         private set
+    lateinit var shizukuBridge: ShizukuBridgeManager
+        private set
 
     private val _overlayState = MutableStateFlow(OverlayRuntimeState())
     val overlayState: StateFlow<OverlayRuntimeState> = _overlayState.asStateFlow()
@@ -51,6 +54,12 @@ class OperPadApplication : Application() {
         repository = OperPadRepository(database.operPadDao(), preferences)
         foregroundAppMonitor = ForegroundAppMonitor(this)
         xInputEngine = XInputControllerEngine()
+        shizukuBridge = ShizukuBridgeManager(this).apply {
+            initialize()
+        }
+        xInputEngine.onStateUpdated = { state ->
+            shizukuBridge.pushXInputState(state)
+        }
 
         applicationScope.launch {
             repository.ensureDefaultPresetsSeeded()

@@ -1,5 +1,5 @@
 {
-  "name": "OperPad",
+  "name": "OverPad",
   "description": "Lightweight floating touch-to-XInput controller overlay with FPS look-drag, trigger-aim gestures, grid-snapped layouts, and per-app preset auto-switching.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

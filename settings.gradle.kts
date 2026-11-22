@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "OperPad"
+rootProject.name = "OverPad"
 
 include(":app")

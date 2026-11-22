@@ -431,10 +431,10 @@ class OperPadOverlayService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "OperPad Controller Overlay",
+                "OverPad Controller Overlay",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Keeps the OperPad floating XInput controller active on top of games and apps."
+                description = "Keeps the OverPad floating XInput controller active on top of games and apps."
             }
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(channel)
@@ -457,7 +457,7 @@ class OperPadOverlayService : Service() {
 
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("OperPad Overlay Active")
+            .setContentTitle("OverPad Overlay Active")
             .setContentText("Virtual XInput controller is running on top of apps.")
             .setContentIntent(openAppIntent)
             .addAction(0, "Stop", stopIntent)

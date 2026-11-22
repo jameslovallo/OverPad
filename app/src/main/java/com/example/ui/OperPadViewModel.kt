@@ -14,6 +14,7 @@ import com.example.model.ControllerPreset
 import com.example.model.DefaultPresets
 import com.example.model.InstalledAppInfo
 import com.example.overlay.OperPadOverlayService
+import com.example.shizuku.ShizukuStatus
 import com.example.xinput.DriverCapabilityStatus
 import com.example.xinput.XInputState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +28,7 @@ class OperPadViewModel(application: Application) : AndroidViewModel(application)
     private val app = application as OperPadApplication
     private val repository = app.repository
     private val monitor = app.foregroundAppMonitor
+    private val shizukuBridge = app.shizukuBridge
     val xInputEngine = app.xInputEngine
 
     val presets: StateFlow<List<ControllerPreset>> = repository.presetsFlow
@@ -38,8 +40,12 @@ class OperPadViewModel(application: Application) : AndroidViewModel(application)
     val userSettings: StateFlow<OperPadUserSettings> = repository.userSettingsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), OperPadUserSettings())
 
+    val loadedUserSettings: StateFlow<OperPadUserSettings?> = repository.userSettingsFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     val overlayState: StateFlow<OverlayRuntimeState> = app.overlayState
     val xInputState: StateFlow<XInputState> = app.xInputEngine.state
+    val shizukuStatus: StateFlow<ShizukuStatus> = shizukuBridge.status
     val driverCapability: DriverCapabilityStatus = app.xInputEngine.driverCapability
 
     private val _installedApps = MutableStateFlow<List<InstalledAppInfo>>(emptyList())
@@ -68,6 +74,32 @@ class OperPadViewModel(application: Application) : AndroidViewModel(application)
     fun refreshPermissions(context: Context) {
         _hasOverlayPermission.value = Settings.canDrawOverlays(context)
         _hasUsagePermission.value = monitor.hasUsageAccessPermission()
+        shizukuBridge.refreshStatusAndAutoConnect()
+    }
+
+    fun requestShizukuPermission() {
+        shizukuBridge.requestShizukuPermission()
+    }
+
+    fun reconnectShizuku() {
+        shizukuBridge.refreshStatusAndAutoConnect()
+        shizukuBridge.bindInjectorService()
+    }
+
+    fun openShizukuApp(context: Context) {
+        if (!shizukuBridge.openShizukuApp(context)) {
+            shizukuBridge.openShizukuDownloadPage(context)
+        }
+    }
+
+    fun openShizukuDownload(context: Context) {
+        shizukuBridge.openShizukuDownloadPage(context)
+    }
+
+    fun setOnboardingCompleted(completed: Boolean) {
+        viewModelScope.launch {
+            repository.setOnboardingCompleted(completed)
+        }
     }
 
     fun loadInstalledApps() {
@@ -164,6 +196,7 @@ class OperPadViewModel(application: Application) : AndroidViewModel(application)
 
     fun startOverlay(context: Context) {
         if (Settings.canDrawOverlays(context)) {
+            shizukuBridge.refreshStatusAndAutoConnect()
             OperPadOverlayService.start(context)
         }
     }

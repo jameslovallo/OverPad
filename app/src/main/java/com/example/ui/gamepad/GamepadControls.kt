@@ -829,7 +829,7 @@ private fun SettingsOverlayButton(
     ) {
         Icon(
             imageVector = Icons.Default.Settings,
-            contentDescription = "OperPad Overlay Settings",
+            contentDescription = "OverPad Overlay Settings",
             tint = ElectricCyan,
             modifier = Modifier.size((22f * scale.coerceIn(0.75f, 1.3f)).dp)
         )

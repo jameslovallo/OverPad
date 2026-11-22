@@ -25,11 +25,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GridOn
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
@@ -126,7 +126,7 @@ fun OverlaySettingsHud(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "OPERPAD QUICK HUD",
+                                text = "OVERPAD QUICK HUD",
                                 style = MaterialTheme.typography.titleLarge,
                                 color = ElectricCyan
                             )
@@ -337,7 +337,7 @@ fun OverlaySettingsHud(
                             onClick = onOpenMainApp,
                             modifier = Modifier.weight(1f)
                         ) {
-                            Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Full Studio")
                         }
@@ -353,7 +353,7 @@ fun OverlaySettingsHud(
                     ) {
                         Icon(Icons.Default.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Stop OperPad Overlay")
+                        Text("Stop OverPad Overlay")
                     }
                 }
             }

@@ -86,4 +86,8 @@ class OperPadRepository(
     suspend fun setUdpBridge(enabled: Boolean, host: String, port: Int) {
         preferences.setUdpBridge(enabled, host, port)
     }
+
+    suspend fun setOnboardingCompleted(completed: Boolean) {
+        preferences.setOnboardingCompleted(completed)
+    }
 }

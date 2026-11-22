@@ -2,8 +2,13 @@ package com.example
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -32,6 +37,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -52,6 +60,7 @@ import com.example.ui.screens.AppProfilesScreen
 import com.example.ui.screens.HubScreen
 import com.example.ui.screens.LayoutEditorScreen
 import com.example.ui.screens.SandboxScreen
+import com.example.ui.screens.ShizukuOnboardingWizard
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.ObsidianBg
 import com.example.ui.theme.OperPadTheme
@@ -94,14 +103,32 @@ fun OperPadAppRoot(viewModel: OperPadViewModel = viewModel()) {
     val presets by viewModel.presets.collectAsStateWithLifecycle()
     val bindings by viewModel.bindings.collectAsStateWithLifecycle()
     val userSettings by viewModel.userSettings.collectAsStateWithLifecycle()
+    val loadedUserSettings by viewModel.loadedUserSettings.collectAsStateWithLifecycle()
     val overlayState by viewModel.overlayState.collectAsStateWithLifecycle()
     val xInputState by viewModel.xInputState.collectAsStateWithLifecycle()
+    val shizukuStatus by viewModel.shizukuStatus.collectAsStateWithLifecycle()
     val installedApps by viewModel.installedApps.collectAsStateWithLifecycle()
     val isLoadingApps by viewModel.isLoadingApps.collectAsStateWithLifecycle()
     val editingPresetId by viewModel.editingPresetId.collectAsStateWithLifecycle()
     val selectedControl by viewModel.selectedControl.collectAsStateWithLifecycle()
     val hasOverlayPermission by viewModel.hasOverlayPermission.collectAsStateWithLifecycle()
     val hasUsagePermission by viewModel.hasUsagePermission.collectAsStateWithLifecycle()
+
+    var showOnboardingManually by rememberSaveable { mutableStateOf(false) }
+    var dismissedInitialOnboarding by rememberSaveable { mutableStateOf(false) }
+    val shouldAutoShowOnboarding =
+        loadedUserSettings?.let { !it.hasCompletedOnboarding } == true && !dismissedInitialOnboarding
+    val showOnboarding = showOnboardingManually || shouldAutoShowOnboarding
+
+    fun closeOnboarding() {
+        dismissedInitialOnboarding = true
+        showOnboardingManually = false
+        viewModel.setOnboardingCompleted(true)
+    }
+
+    BackHandler(enabled = showOnboarding) {
+        closeOnboarding()
+    }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -123,8 +150,9 @@ fun OperPadAppRoot(viewModel: OperPadViewModel = viewModel()) {
         }
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val useNavigationRail = maxWidth >= 600.dp
+    Box(modifier = Modifier.fillMaxSize()) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val useNavigationRail = maxWidth >= 600.dp
 
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -203,6 +231,7 @@ fun OperPadAppRoot(viewModel: OperPadViewModel = viewModel()) {
                             userSettings = userSettings,
                             hasOverlayPermission = hasOverlayPermission,
                             hasUsagePermission = hasUsagePermission,
+                            shizukuStatus = shizukuStatus,
                             driverCapability = viewModel.driverCapability,
                             onStartOverlay = { viewModel.startOverlay(context) },
                             onStopOverlay = { viewModel.stopOverlay(context) },
@@ -212,6 +241,11 @@ fun OperPadAppRoot(viewModel: OperPadViewModel = viewModel()) {
                                 navigateTo(OperPadRoute.EDITOR.route)
                             },
                             onOpenSandbox = { navigateTo(OperPadRoute.SANDBOX.route) },
+                            onOpenOnboarding = { showOnboardingManually = true },
+                            onRequestShizukuPermission = viewModel::requestShizukuPermission,
+                            onReconnectShizuku = viewModel::reconnectShizuku,
+                            onOpenShizukuApp = { viewModel.openShizukuApp(context) },
+                            onDownloadShizuku = { viewModel.openShizukuDownload(context) },
                             onSetHaptics = viewModel::setHapticFeedback,
                             onSetUdpBridge = viewModel::setUdpBridge
                         )
@@ -259,6 +293,25 @@ fun OperPadAppRoot(viewModel: OperPadViewModel = viewModel()) {
                     }
                 }
             }
+        }
+        }
+
+        AnimatedVisibility(
+            visible = showOnboarding,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            ShizukuOnboardingWizard(
+                shizukuStatus = shizukuStatus,
+                hasOverlayPermission = hasOverlayPermission,
+                hasUsagePermission = hasUsagePermission,
+                onRefreshStatus = { viewModel.refreshPermissions(context) },
+                onOpenShizuku = { viewModel.openShizukuApp(context) },
+                onDownloadShizuku = { viewModel.openShizukuDownload(context) },
+                onRequestShizukuPermission = viewModel::requestShizukuPermission,
+                onReconnectBridge = viewModel::reconnectShizuku,
+                onFinish = ::closeOnboarding
+            )
         }
     }
 }

@@ -155,7 +155,7 @@ enum class ControlType(
         displayName = "Overlay Settings",
         shortLabel = "CFG",
         xinputBinding = "Opens Preset & Layout HUD",
-        androidCodeSummary = "OperPad Menu",
+        androidCodeSummary = "OverPad Menu",
         baseWidthDp = 48f,
         baseHeightDp = 48f,
         canHide = false

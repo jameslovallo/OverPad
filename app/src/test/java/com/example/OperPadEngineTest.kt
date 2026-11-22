@@ -3,6 +3,8 @@ package com.example
 import com.example.model.ControlType
 import com.example.model.DefaultPresets
 import com.example.model.GridSnapper
+import com.example.shizuku.ShizukuConnectionStage
+import com.example.shizuku.ShizukuStatus
 import com.example.xinput.DPadDirectionState
 import com.example.xinput.XInputControllerEngine
 import com.example.xinput.XInputState
@@ -92,5 +94,59 @@ class OperPadEngineTest {
 
         assertEquals(1.25f, GridSnapper.snapScale(1.23f), 0.001f)
         assertEquals(0.80f, GridSnapper.snapOpacity(0.79f), 0.001f)
+    }
+
+    @Test
+    fun shizukuStatus_resolvesStagesAndModeLabelsCorrectly() {
+        assertEquals(
+            ShizukuConnectionStage.NOT_INSTALLED,
+            ShizukuStatus(isShizukuInstalled = false, isBinderAlive = false).stage
+        )
+        assertEquals(
+            ShizukuConnectionStage.SERVICE_STOPPED,
+            ShizukuStatus(isShizukuInstalled = true, isBinderAlive = false).stage
+        )
+        assertEquals(
+            ShizukuConnectionStage.PERMISSION_REQUIRED,
+            ShizukuStatus(isShizukuInstalled = true, isBinderAlive = true, isPermissionGranted = false).stage
+        )
+        assertEquals(
+            ShizukuConnectionStage.CONNECTING,
+            ShizukuStatus(
+                isShizukuInstalled = true,
+                isBinderAlive = true,
+                isPermissionGranted = true,
+                isServiceConnected = false
+            ).stage
+        )
+        val shellConnected = ShizukuStatus(
+            isShizukuInstalled = true,
+            isBinderAlive = true,
+            isPermissionGranted = true,
+            isServiceConnected = true,
+            remoteUid = 2000
+        )
+        assertEquals(ShizukuConnectionStage.CONNECTED, shellConnected.stage)
+        assertTrue(shellConnected.modeLabel.contains("2000"))
+
+        val rootConnected = shellConnected.copy(remoteUid = 0, uinputWritable = true)
+        assertTrue(rootConnected.modeLabel.contains("/dev/uinput"))
+    }
+
+    @Test
+    fun engineCallback_emitsStateUpdatesForShizukuForwarding() {
+        val engine = XInputControllerEngine()
+        val captured = mutableListOf<XInputState>()
+        engine.onStateUpdated = { captured.add(it) }
+
+        engine.setButtonPressed(ControlType.BUTTON_X, true)
+        engine.updateLeftStick(0.5f, -0.5f)
+        engine.resetAll()
+
+        assertEquals(3, captured.size)
+        assertTrue((captured[0].buttonsMask and XInputState.XINPUT_GAMEPAD_X) != 0)
+        assertEquals(0.5f, captured[1].thumbLX, 0.001f)
+        assertEquals(0, captured[2].buttonsMask)
+        assertEquals(0f, captured[2].thumbLX, 0.001f)
     }
 }

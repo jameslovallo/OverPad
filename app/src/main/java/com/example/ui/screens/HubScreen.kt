@@ -29,13 +29,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueryStats
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Usb
@@ -75,6 +79,8 @@ import com.example.OverlayRuntimeState
 import com.example.R
 import com.example.data.OperPadUserSettings
 import com.example.model.ControllerPreset
+import com.example.shizuku.ShizukuConnectionStage
+import com.example.shizuku.ShizukuStatus
 import com.example.ui.theme.CrimsonAlert
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.HairlineBorder
@@ -95,12 +101,18 @@ fun HubScreen(
     userSettings: OperPadUserSettings,
     hasOverlayPermission: Boolean,
     hasUsagePermission: Boolean,
+    shizukuStatus: ShizukuStatus,
     driverCapability: DriverCapabilityStatus,
     onStartOverlay: () -> Unit,
     onStopOverlay: () -> Unit,
     onSelectPreset: (ControllerPreset) -> Unit,
     onEditPreset: (ControllerPreset) -> Unit,
     onOpenSandbox: () -> Unit,
+    onOpenOnboarding: () -> Unit,
+    onRequestShizukuPermission: () -> Unit,
+    onReconnectShizuku: () -> Unit,
+    onOpenShizukuApp: () -> Unit,
+    onDownloadShizuku: () -> Unit,
     onSetHaptics: (Boolean) -> Unit,
     onSetUdpBridge: (Boolean, String, Int) -> Unit
 ) {
@@ -152,7 +164,7 @@ fun HubScreen(
                 Box(modifier = Modifier.fillMaxWidth()) {
                     Image(
                         painter = painterResource(id = R.drawable.img_operpad_hero_1795371252898),
-                        contentDescription = "OperPad tactical controller backdrop",
+                        contentDescription = "OverPad tactical controller backdrop",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -186,7 +198,7 @@ fun HubScreen(
                         ) {
                             Column {
                                 Text(
-                                    text = "OPERPAD",
+                                    text = "OVERPAD",
                                     style = MaterialTheme.typography.displaySmall,
                                     color = ElectricCyan
                                 )
@@ -282,6 +294,18 @@ fun HubScreen(
                     }
                 }
             }
+        }
+
+        // Shizuku Controller Injection Bridge Card
+        item {
+            ShizukuBridgeCard(
+                shizukuStatus = shizukuStatus,
+                onOpenOnboarding = onOpenOnboarding,
+                onRequestShizukuPermission = onRequestShizukuPermission,
+                onReconnectShizuku = onReconnectShizuku,
+                onOpenShizukuApp = onOpenShizukuApp,
+                onDownloadShizuku = onDownloadShizuku
+            )
         }
 
         // Permission Readiness Section
@@ -601,6 +625,174 @@ private fun PermissionStatusRow(
                     Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(4.dp))
                     Text(actionLabel, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ShizukuBridgeCard(
+    shizukuStatus: ShizukuStatus,
+    onOpenOnboarding: () -> Unit,
+    onRequestShizukuPermission: () -> Unit,
+    onReconnectShizuku: () -> Unit,
+    onOpenShizukuApp: () -> Unit,
+    onDownloadShizuku: () -> Unit
+) {
+    val isConnected = shizukuStatus.stage == ShizukuConnectionStage.CONNECTED
+    val accentColor = when (shizukuStatus.stage) {
+        ShizukuConnectionStage.CONNECTED -> TacticalEmerald
+        ShizukuConnectionStage.CONNECTING, ShizukuConnectionStage.PERMISSION_REQUIRED -> ElectricCyan
+        ShizukuConnectionStage.SERVICE_STOPPED, ShizukuConnectionStage.NOT_INSTALLED -> TriggerAmber
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 840.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = SlateSurface),
+        border = BorderStroke(
+            width = if (isConnected) 1.dp else 1.5.dp,
+            color = accentColor.copy(alpha = if (isConnected) 0.5f else 0.7f)
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Usb, contentDescription = null, tint = accentColor)
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("SHIZUKU GAMEPAD BRIDGE", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = when (shizukuStatus.stage) {
+                                ShizukuConnectionStage.CONNECTED ->
+                                    "${shizukuStatus.modeLabel} • ${shizukuStatus.injectedCount} events sent"
+                                ShizukuConnectionStage.CONNECTING ->
+                                    "Authorized — binding privileged XInput injector service..."
+                                ShizukuConnectionStage.PERMISSION_REQUIRED ->
+                                    "Shizuku is running — authorize OverPad to inject gamepad input"
+                                ShizukuConnectionStage.SERVICE_STOPPED ->
+                                    "Shizuku is installed but stopped — start via Wireless Debugging"
+                                ShizukuConnectionStage.NOT_INSTALLED ->
+                                    "Install Shizuku to inject gamepad KeyEvent/MotionEvent into games"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isConnected) TacticalEmerald else TextSecondary
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = accentColor.copy(alpha = 0.16f),
+                    border = BorderStroke(1.dp, accentColor.copy(alpha = 0.45f))
+                ) {
+                    Text(
+                        text = when (shizukuStatus.stage) {
+                            ShizukuConnectionStage.CONNECTED -> "ACTIVE"
+                            ShizukuConnectionStage.CONNECTING -> "BINDING"
+                            ShizukuConnectionStage.PERMISSION_REQUIRED -> "AUTH NEEDED"
+                            ShizukuConnectionStage.SERVICE_STOPPED -> "STOPPED"
+                            ShizukuConnectionStage.NOT_INSTALLED -> "SETUP"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = accentColor,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            shizukuStatus.lastError?.let { errorMsg ->
+                Text(
+                    text = errorMsg,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = CrimsonAlert
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                when (shizukuStatus.stage) {
+                    ShizukuConnectionStage.NOT_INSTALLED -> {
+                        Button(
+                            onClick = onDownloadShizuku,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("hub_get_shizuku_button")
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Get Shizuku")
+                        }
+                    }
+
+                    ShizukuConnectionStage.SERVICE_STOPPED -> {
+                        Button(
+                            onClick = onOpenShizukuApp,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("hub_open_shizuku_button")
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Start Shizuku")
+                        }
+                    }
+
+                    ShizukuConnectionStage.PERMISSION_REQUIRED -> {
+                        Button(
+                            onClick = onRequestShizukuPermission,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("hub_authorize_shizuku_button")
+                        ) {
+                            Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Authorize")
+                        }
+                    }
+
+                    ShizukuConnectionStage.CONNECTING, ShizukuConnectionStage.CONNECTED -> {
+                        OutlinedButton(
+                            onClick = onReconnectShizuku,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("hub_reconnect_shizuku_button")
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (isConnected) "Verify Bridge" else "Reconnect")
+                        }
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = onOpenOnboarding,
+                    modifier = Modifier
+                        .height(48.dp)
+                        .testTag("open_shizuku_onboarding_button")
+                ) {
+                    Icon(Icons.Default.RocketLaunch, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Setup Wizard")
                 }
             }
         }
