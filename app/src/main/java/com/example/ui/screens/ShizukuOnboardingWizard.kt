@@ -48,8 +48,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,6 +75,7 @@ import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.TriggerAmber
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ShizukuOnboardingWizard(
     shizukuStatus: ShizukuStatus,
@@ -83,8 +89,10 @@ fun ShizukuOnboardingWizard(
     onFinish: () -> Unit
 ) {
     val context = LocalContext.current
+    var step1Skipped by rememberSaveable { mutableStateOf(false) }
 
     val step1Done = shizukuStatus.isBinderAlive
+    val step1Satisfied = step1Done || step1Skipped
     val step2Done = shizukuStatus.stage == ShizukuConnectionStage.CONNECTED
     val step3Done = hasOverlayPermission
     val step4Done = hasUsagePermission
@@ -199,63 +207,90 @@ fun ShizukuOnboardingWizard(
                         title = "Start Shizuku Service",
                         subtitle = when {
                             shizukuStatus.isBinderAlive -> "Shizuku service is active and reachable."
+                            step1Skipped -> "Skipped — you can still authorize Shizuku below or continue using Overlay/UDP mode."
                             shizukuStatus.isShizukuInstalled -> "Shizuku is installed. Enable Wireless Debugging in Developer Options, pair in Shizuku, and tap Start."
-                            else -> "Install Shizuku to inject XInput controller events into games without root or a PC."
+                            else -> "Install and start Shizuku to inject XInput controller events into games, or skip if already configured / using UDP."
                         },
                         icon = Icons.Default.Usb,
                         isDone = step1Done,
-                        isActive = !step1Done
+                        isActive = !step1Satisfied
                     ) {
-                        if (!shizukuStatus.isShizukuInstalled) {
-                            Button(
-                                onClick = onDownloadShizuku,
-                                modifier = Modifier.testTag("onboarding_get_shizuku_button")
-                            ) {
-                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Get Shizuku")
-                            }
-                        } else if (!shizukuStatus.isBinderAlive) {
+                        if (!shizukuStatus.isBinderAlive) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = ObsidianBg,
-                                    border = BorderStroke(1.dp, HairlineBorder)
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(10.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                if (shizukuStatus.isShizukuInstalled && !step1Skipped) {
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = ObsidianBg,
+                                        border = BorderStroke(1.dp, HairlineBorder)
                                     ) {
-                                        Text(
-                                            "Quick Wireless Debugging Steps:",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = ElectricCyan
-                                        )
-                                        Text(
-                                            "1. Open Developer Options and enable Wireless Debugging.\n" +
-                                                "2. Open Shizuku -> Pairing -> enter the pairing code.\n" +
-                                                "3. Tap Start in Shizuku, then return to OverPad.",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = TextSecondary
-                                        )
+                                        Column(
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                "Quick Wireless Debugging Steps:",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = ElectricCyan
+                                            )
+                                            Text(
+                                                "1. Open Developer Options and enable Wireless Debugging.\n" +
+                                                    "2. Open Shizuku -> Pairing -> enter the pairing code.\n" +
+                                                    "3. Tap Start in Shizuku, then return to OverPad.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = TextSecondary
+                                            )
+                                        }
                                     }
                                 }
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Button(
-                                        onClick = onOpenShizuku,
-                                        modifier = Modifier.testTag("onboarding_open_shizuku_button")
-                                    ) {
-                                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text("Open Shizuku")
+
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    if (!shizukuStatus.isShizukuInstalled) {
+                                        Button(
+                                            onClick = onDownloadShizuku,
+                                            modifier = Modifier.testTag("onboarding_get_shizuku_button")
+                                        ) {
+                                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Get Shizuku")
+                                        }
+                                    } else {
+                                        Button(
+                                            onClick = onOpenShizuku,
+                                            modifier = Modifier.testTag("onboarding_open_shizuku_button")
+                                        ) {
+                                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Open Shizuku")
+                                        }
+                                        OutlinedButton(
+                                            onClick = { openDeveloperOptions(context) },
+                                            modifier = Modifier.testTag("onboarding_dev_options_button")
+                                        ) {
+                                            Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Dev Options")
+                                        }
                                     }
+
                                     OutlinedButton(
-                                        onClick = { openDeveloperOptions(context) },
-                                        modifier = Modifier.testTag("onboarding_dev_options_button")
+                                        onClick = onRefreshStatus,
+                                        modifier = Modifier.testTag("onboarding_recheck_shizuku_button")
                                     ) {
-                                        Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                                         Spacer(Modifier.width(6.dp))
-                                        Text("Dev Options")
+                                        Text("Re-check")
+                                    }
+
+                                    if (!step1Skipped) {
+                                        TextButton(
+                                            onClick = { step1Skipped = true },
+                                            modifier = Modifier.testTag("onboarding_skip_step1_button")
+                                        ) {
+                                            Text("Skip Step", color = TextSecondary)
+                                        }
                                     }
                                 }
                             }
@@ -270,20 +305,22 @@ fun ShizukuOnboardingWizard(
                             ShizukuConnectionStage.CONNECTED -> shizukuStatus.modeLabel
                             ShizukuConnectionStage.CONNECTING -> "Permission granted — binding privileged XInput injector..."
                             ShizukuConnectionStage.PERMISSION_REQUIRED -> "Allow OverPad to inject gamepad key & thumbstick events via Shizuku."
-                            else -> "Waiting for Shizuku service in Step 1."
+                            else -> "If Shizuku is already running, tap Authorize Bridge below to request access directly."
                         },
                         icon = Icons.Default.Security,
                         isDone = step2Done,
-                        isActive = step1Done && !step2Done
+                        isActive = step1Satisfied && !step2Done
                     ) {
-                        if (shizukuStatus.isBinderAlive && !shizukuStatus.isPermissionGranted) {
-                            Button(
-                                onClick = onRequestShizukuPermission,
-                                modifier = Modifier.testTag("onboarding_grant_shizuku_button")
-                            ) {
-                                Text("Authorize OverPad")
+                        if (!shizukuStatus.isPermissionGranted) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = onRequestShizukuPermission,
+                                    modifier = Modifier.testTag("onboarding_grant_shizuku_button")
+                                ) {
+                                    Text("Authorize OverPad")
+                                }
                             }
-                        } else if (shizukuStatus.isBinderAlive && shizukuStatus.isPermissionGranted && !shizukuStatus.isServiceConnected) {
+                        } else if (!shizukuStatus.isServiceConnected) {
                             OutlinedButton(
                                 onClick = onReconnectBridge,
                                 modifier = Modifier.testTag("onboarding_bind_shizuku_button")

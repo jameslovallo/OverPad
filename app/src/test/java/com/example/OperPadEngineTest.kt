@@ -131,6 +131,10 @@ class OperPadEngineTest {
 
         val rootConnected = shellConnected.copy(remoteUid = 0, uinputWritable = true)
         assertTrue(rootConnected.modeLabel.contains("/dev/uinput"))
+        assertEquals(
+            rikka.shizuku.ShizukuProvider.MANAGER_APPLICATION_ID,
+            com.example.shizuku.ShizukuBridgeManager.SHIZUKU_PACKAGE
+        )
     }
 
     @Test

@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
+import rikka.shizuku.ShizukuProvider
 import java.util.concurrent.Executors
 
 enum class ShizukuConnectionStage {
@@ -150,7 +151,7 @@ class ShizukuBridgeManager(private val context: Context) {
     }
 
     fun refreshStatusAndAutoConnect() {
-        val installed = isPackageInstalled(SHIZUKU_PACKAGE)
+        val installed = SHIZUKU_PACKAGES.any { isPackageInstalled(it) }
         val binderAlive = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
         val permissionGranted = if (binderAlive) {
             runCatching {
@@ -163,7 +164,8 @@ class ShizukuBridgeManager(private val context: Context) {
         _status.value = _status.value.copy(
             isShizukuInstalled = installed,
             isBinderAlive = binderAlive,
-            isPermissionGranted = permissionGranted
+            isPermissionGranted = permissionGranted,
+            lastError = if (binderAlive) null else _status.value.lastError
         )
 
         if (binderAlive && permissionGranted && injector == null && !isBound) {
@@ -172,9 +174,10 @@ class ShizukuBridgeManager(private val context: Context) {
     }
 
     fun requestShizukuPermission() {
+        refreshStatusAndAutoConnect()
         runCatching {
             if (!Shizuku.pingBinder()) {
-                _status.value = _status.value.copy(lastError = "Start Shizuku first before requesting access.")
+                _status.value = _status.value.copy(lastError = "Shizuku service is not active yet. Open Shizuku and tap Start, then retry.")
                 return
             }
             if (Shizuku.isPreV11()) {
@@ -182,7 +185,7 @@ class ShizukuBridgeManager(private val context: Context) {
                 return
             }
             if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
-                _status.value = _status.value.copy(isPermissionGranted = true)
+                _status.value = _status.value.copy(isPermissionGranted = true, lastError = null)
                 bindInjectorService()
             } else {
                 Shizuku.requestPermission(SHIZUKU_PERMISSION_REQUEST_CODE)
@@ -239,14 +242,15 @@ class ShizukuBridgeManager(private val context: Context) {
     }
 
     fun openShizukuApp(ctx: Context): Boolean {
-        val launchIntent = ctx.packageManager.getLaunchIntentForPackage(SHIZUKU_PACKAGE)
-        return if (launchIntent != null) {
-            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            ctx.startActivity(launchIntent)
-            true
-        } else {
-            false
+        for (pkg in SHIZUKU_PACKAGES) {
+            val launchIntent = ctx.packageManager.getLaunchIntentForPackage(pkg)
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ctx.startActivity(launchIntent)
+                return true
+            }
         }
+        return false
     }
 
     fun openShizukuDownloadPage(ctx: Context) {
@@ -290,7 +294,11 @@ class ShizukuBridgeManager(private val context: Context) {
     }
 
     companion object {
-        const val SHIZUKU_PACKAGE = "moe.shizuku.manager"
+        const val SHIZUKU_PACKAGE = ShizukuProvider.MANAGER_APPLICATION_ID
+        val SHIZUKU_PACKAGES = listOf(
+            ShizukuProvider.MANAGER_APPLICATION_ID,
+            "moe.shizuku.manager"
+        )
         private const val SHIZUKU_PERMISSION_REQUEST_CODE = 9042
     }
 }
