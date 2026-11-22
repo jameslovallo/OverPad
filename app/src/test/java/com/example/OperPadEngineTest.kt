@@ -222,4 +222,57 @@ class OperPadEngineTest {
         assertTrue(uinputInject.contains("\"command\":\"inject\""))
         assertTrue(uinputInject.contains("\"events\":[1,304,1,0,0,0]"))
     }
+
+    @Test
+    fun fpsMouseLookFilter_isRefreshRateIndependentWithDeadzoneBoostAndSmoothDecay() {
+        val fps = DefaultPresets.fpsPro()
+        assertEquals(com.example.model.TriggerDragMode.SWIPE_VELOCITY, fps.triggerDragMode)
+
+        // 1. Sub-jitter micro wobble stays exact zero
+        val jitterFilter = com.example.xinput.TouchMouseLookFilter()
+        jitterFilter.onPointerDown(1000L)
+        val (jx, jy) = jitterFilter.onPointerMove(0.10f, -0.10f, 1016L, sensitivity = 1.45f)
+        assertEquals(0f, jx, 0.0001f)
+        assertEquals(0f, jy, 0.0001f)
+
+        // 2. Same physical thumb speed at 60Hz (16ms steps) vs 120Hz (8ms steps) reaches matching deflection
+        val filter60 = com.example.xinput.TouchMouseLookFilter()
+        val filter120 = com.example.xinput.TouchMouseLookFilter()
+        filter60.onPointerDown(0L)
+        filter120.onPointerDown(0L)
+
+        var out60 = 0f to 0f
+        for (frame in 1..6) {
+            out60 = filter60.onPointerMove(3.2f, 0f, frame * 16L, sensitivity = 1.45f, antiDeadzone = 0.14f)
+        }
+        var out120 = 0f to 0f
+        for (frame in 1..12) {
+            out120 = filter120.onPointerMove(1.6f, 0f, frame * 8L, sensitivity = 1.45f, antiDeadzone = 0.14f)
+        }
+        assertEquals(out60.first, out120.first, 0.04f)
+        assertEquals(0f, out60.second, 0.001f)
+
+        // 3. Slow precision drag still clears 14% console anti-deadzone cleanly
+        assertTrue(out60.first > 0.25f)
+        assertTrue(out60.first < 0.85f)
+
+        // 4. Fast flick saturates smoothly to max deflection in diagonal direction
+        val flickFilter = com.example.xinput.TouchMouseLookFilter()
+        flickFilter.onPointerDown(0L)
+        val (fx, fy) = flickFilter.onPointerMove(18f, -18f, 12L, sensitivity = 1.45f, antiDeadzone = 0.14f)
+        assertTrue(fx > 0.65f)
+        assertTrue(fy < -0.65f)
+
+        // 5. Idle decay glides velocity back to exact zero smoothly and then stops emitting
+        var settledToZero = false
+        for (step in 1..15) {
+            val decayed = flickFilter.decayIfIdle(12L + step * 14L, sensitivity = 1.45f, antiDeadzone = 0.14f)
+            if (decayed != null && decayed.first == 0f && decayed.second == 0f) {
+                settledToZero = true
+                break
+            }
+        }
+        assertTrue(settledToZero)
+        assertEquals(null, flickFilter.decayIfIdle(500L, sensitivity = 1.45f))
+    }
 }

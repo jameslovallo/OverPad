@@ -5,10 +5,12 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.model.DefaultPresets
+import com.example.xinput.TouchMouseLookFilter
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -21,7 +23,8 @@ data class OperPadUserSettings(
     val udpBridgeEnabled: Boolean = false,
     val udpHost: String = "127.0.0.1",
     val udpPort: Int = 26760,
-    val hasCompletedOnboarding: Boolean = false
+    val hasCompletedOnboarding: Boolean = false,
+    val fpsAntiDeadzone: Float = TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE
 )
 
 class OperPadPreferences(private val context: Context) {
@@ -33,6 +36,7 @@ class OperPadPreferences(private val context: Context) {
         val UDP_HOST = stringPreferencesKey("udp_host")
         val UDP_PORT = intPreferencesKey("udp_port")
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
+        val FPS_ANTI_DEADZONE = floatPreferencesKey("fps_anti_deadzone")
     }
 
     val settingsFlow: Flow<OperPadUserSettings> = context.operPadDataStore.data.map { prefs ->
@@ -43,7 +47,9 @@ class OperPadPreferences(private val context: Context) {
             udpBridgeEnabled = prefs[Keys.UDP_BRIDGE_ENABLED] ?: false,
             udpHost = prefs[Keys.UDP_HOST] ?: "127.0.0.1",
             udpPort = prefs[Keys.UDP_PORT] ?: 26760,
-            hasCompletedOnboarding = prefs[Keys.ONBOARDING_COMPLETED] ?: false
+            hasCompletedOnboarding = prefs[Keys.ONBOARDING_COMPLETED] ?: false,
+            fpsAntiDeadzone = (prefs[Keys.FPS_ANTI_DEADZONE] ?: TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE)
+                .coerceIn(TouchMouseLookFilter.MIN_ANTI_DEADZONE, TouchMouseLookFilter.MAX_ANTI_DEADZONE)
         )
     }
 
@@ -69,5 +75,14 @@ class OperPadPreferences(private val context: Context) {
 
     suspend fun setOnboardingCompleted(completed: Boolean) {
         context.operPadDataStore.edit { it[Keys.ONBOARDING_COMPLETED] = completed }
+    }
+
+    suspend fun setFpsAntiDeadzone(boost: Float) {
+        context.operPadDataStore.edit {
+            it[Keys.FPS_ANTI_DEADZONE] = boost.coerceIn(
+                TouchMouseLookFilter.MIN_ANTI_DEADZONE,
+                TouchMouseLookFilter.MAX_ANTI_DEADZONE
+            )
+        }
     }
 }

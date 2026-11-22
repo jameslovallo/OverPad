@@ -90,4 +90,8 @@ class OperPadRepository(
     suspend fun setOnboardingCompleted(completed: Boolean) {
         preferences.setOnboardingCompleted(completed)
     }
+
+    suspend fun setFpsAntiDeadzone(boost: Float) {
+        preferences.setFpsAntiDeadzone(boost)
+    }
 }

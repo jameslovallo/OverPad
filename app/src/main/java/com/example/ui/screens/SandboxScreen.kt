@@ -63,6 +63,7 @@ import com.example.ui.theme.TacticalEmerald
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.TriggerAmber
+import com.example.xinput.TouchMouseLookFilter
 import com.example.xinput.XInputControllerEngine
 import com.example.xinput.XInputState
 import kotlinx.coroutines.delay
@@ -76,6 +77,7 @@ fun SandboxScreen(
     xInputState: XInputState,
     xInputEngine: XInputControllerEngine,
     hapticsEnabled: Boolean,
+    antiDeadzone: Float = TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE,
     onSelectPreset: (ControllerPreset) -> Unit
 ) {
     // Simulated camera yaw/pitch reticle driven directly by Right Stick (including FPS drag + Trigger Hold+Drag!)
@@ -255,6 +257,7 @@ fun SandboxScreen(
                             preset = activePreset,
                             engine = xInputEngine,
                             showGuideOverlay = true,
+                            antiDeadzone = antiDeadzone,
                             modifier = Modifier
                                 .fillMaxWidth(0.5f)
                                 .fillMaxHeight()
@@ -275,7 +278,8 @@ fun SandboxScreen(
                                     preset = activePreset,
                                     engine = xInputEngine,
                                     interactive = true,
-                                    hapticsEnabled = hapticsEnabled
+                                    hapticsEnabled = hapticsEnabled,
+                                    antiDeadzone = antiDeadzone
                                 )
                             }
                         }

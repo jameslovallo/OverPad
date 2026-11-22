@@ -67,6 +67,8 @@ import com.example.OverlayRuntimeState
 import com.example.model.ControlType
 import com.example.model.ControllerPreset
 import com.example.model.GridSnapper
+import com.example.model.PresetCategory
+import com.example.xinput.TouchMouseLookFilter
 import com.example.ui.gamepad.GamepadControlNode
 import com.example.ui.theme.CrimsonAlert
 import com.example.ui.theme.ElectricCyan
@@ -85,6 +87,8 @@ import kotlin.math.roundToInt
 fun OverlaySettingsHud(
     runtimeState: OverlayRuntimeState,
     allPresets: List<ControllerPreset>,
+    antiDeadzone: Float = TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE,
+    onUpdateAntiDeadzone: (Float) -> Unit = {},
     onSelectPreset: (ControllerPreset) -> Unit,
     onBindForegroundApp: (String, String, String) -> Unit,
     onUpdatePreset: (ControllerPreset) -> Unit,
@@ -276,7 +280,7 @@ fun OverlaySettingsHud(
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Trigger Hold + Drag Aim (LT/RT)", style = MaterialTheme.typography.titleSmall)
                             Text(
-                                "Hold LT/RT and drag in any direction to steer Right Stick",
+                                "Hold LT/RT and swipe to steer Right Stick mouse-style",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary
                             )
@@ -287,6 +291,51 @@ fun OverlaySettingsHud(
                                 onUpdatePreset(preset.copy(triggerDragAimEnabled = it))
                             }
                         )
+                    }
+
+                    if (preset.fpsRightZoneEnabled || preset.triggerDragAimEnabled || preset.category == PresetCategory.FPS) {
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Mouse-Look Sensitivity", style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+                                Text(
+                                    text = "${"%.2f".format(preset.fpsLookSensitivity)}x",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = ElectricCyan
+                                )
+                            }
+                            Slider(
+                                value = preset.fpsLookSensitivity,
+                                onValueChange = { onUpdatePreset(preset.copy(fpsLookSensitivity = it)) },
+                                valueRange = 0.5f..3.0f,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = ElectricCyan,
+                                    activeTrackColor = ElectricCyan
+                                )
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Game Deadzone Boost", style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+                                Text(
+                                    text = "${(antiDeadzone * 100).roundToInt()}%",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = ElectricCyan
+                                )
+                            }
+                            Slider(
+                                value = antiDeadzone,
+                                onValueChange = onUpdateAntiDeadzone,
+                                valueRange = TouchMouseLookFilter.MIN_ANTI_DEADZONE..TouchMouseLookFilter.MAX_ANTI_DEADZONE,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = ElectricCyan,
+                                    activeTrackColor = ElectricCyan
+                                )
+                            )
+                        }
                     }
 
                     HorizontalDivider(color = HairlineBorder)

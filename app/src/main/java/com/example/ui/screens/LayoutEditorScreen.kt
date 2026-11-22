@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import com.example.model.ControlType
 import com.example.model.ControllerPreset
 import com.example.model.GridSnapper
+import com.example.model.PresetCategory
 import com.example.model.TriggerDragMode
 import com.example.ui.gamepad.GamepadControlNode
 import com.example.ui.theme.CrimsonAlert
@@ -81,6 +82,7 @@ import com.example.ui.theme.TacticalEmerald
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.TriggerAmber
+import com.example.xinput.TouchMouseLookFilter
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -89,6 +91,8 @@ fun LayoutEditorScreen(
     presets: List<ControllerPreset>,
     editingPresetId: String,
     selectedControl: ControlType,
+    antiDeadzone: Float = TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE,
+    onUpdateAntiDeadzone: (Float) -> Unit = {},
     onSelectPresetToEdit: (String) -> Unit,
     onSelectControl: (ControlType) -> Unit,
     onUpdatePreset: (ControllerPreset) -> Unit,
@@ -615,24 +619,49 @@ fun LayoutEditorScreen(
                         }
                     }
 
-                    if (preset.fpsRightZoneEnabled || preset.triggerDragAimEnabled) {
-                        Column {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Look Sensitivity", style = MaterialTheme.typography.titleSmall)
-                                Text(
-                                    text = "${"%.2f".format(preset.fpsLookSensitivity)}x",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = ElectricCyan
+                    if (preset.fpsRightZoneEnabled || preset.triggerDragAimEnabled || preset.category == PresetCategory.FPS) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Mouse-Like Look Sensitivity", style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        text = "${"%.2f".format(preset.fpsLookSensitivity)}x",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = ElectricCyan
+                                    )
+                                }
+                                Slider(
+                                    value = preset.fpsLookSensitivity,
+                                    onValueChange = { onUpdatePreset(preset.copy(fpsLookSensitivity = it)) },
+                                    valueRange = 0.5f..3.0f
                                 )
                             }
-                            Slider(
-                                value = preset.fpsLookSensitivity,
-                                onValueChange = { onUpdatePreset(preset.copy(fpsLookSensitivity = it)) },
-                                valueRange = 0.5f..3.0f
-                            )
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Game Deadzone Boost", style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        text = "${(antiDeadzone * 100).roundToInt()}%",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = ElectricCyan
+                                    )
+                                }
+                                Text(
+                                    text = "Lifts micro-swipes past the game's inner stick deadzone so small aim adjustments feel 1:1.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextSecondary
+                                )
+                                Slider(
+                                    value = antiDeadzone,
+                                    onValueChange = onUpdateAntiDeadzone,
+                                    valueRange = TouchMouseLookFilter.MIN_ANTI_DEADZONE..TouchMouseLookFilter.MAX_ANTI_DEADZONE
+                                )
+                            }
                         }
                         Row(
                             modifier = Modifier.fillMaxWidth(),

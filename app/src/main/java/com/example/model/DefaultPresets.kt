@@ -18,7 +18,7 @@ object DefaultPresets {
     fun fpsPro(): ControllerPreset = ControllerPreset(
         id = ID_FPS_PRO,
         name = "FPS Pro (Touch-Aim)",
-        description = "Left stick movement, right-side screen drag look, and LT/RT hold+drag aim steering.",
+        description = "Left stick movement, mouse-like right-side look swipe, and LT/RT hold+swipe aim.",
         category = PresetCategory.FPS,
         isBuiltIn = true,
         opacity = 0.78f,
@@ -27,7 +27,7 @@ object DefaultPresets {
         fpsRightZoneEnabled = true,
         fpsLookSensitivity = 1.45f,
         triggerDragAimEnabled = true,
-        triggerDragMode = TriggerDragMode.STICK_DISPLACEMENT,
+        triggerDragMode = TriggerDragMode.SWIPE_VELOCITY,
         triggerDragRadiusDp = 56f,
         invertRightY = false,
         controls = listOf(

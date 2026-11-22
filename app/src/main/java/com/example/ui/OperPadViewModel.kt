@@ -193,6 +193,12 @@ class OperPadViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun setFpsAntiDeadzone(boost: Float) {
+        viewModelScope.launch {
+            repository.setFpsAntiDeadzone(boost)
+        }
+    }
+
     fun startOverlay(context: Context) {
         if (Settings.canDrawOverlays(context)) {
             shizukuBridge.refreshStatusAndAutoConnect()

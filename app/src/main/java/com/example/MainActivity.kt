@@ -256,6 +256,8 @@ fun OperPadAppRoot(viewModel: OperPadViewModel = viewModel()) {
                             presets = presets,
                             editingPresetId = editingPresetId,
                             selectedControl = selectedControl,
+                            antiDeadzone = userSettings.fpsAntiDeadzone,
+                            onUpdateAntiDeadzone = viewModel::setFpsAntiDeadzone,
                             onSelectPresetToEdit = viewModel::selectPresetForEditing,
                             onSelectControl = viewModel::selectControl,
                             onUpdatePreset = viewModel::updatePreset,
@@ -288,6 +290,7 @@ fun OperPadAppRoot(viewModel: OperPadViewModel = viewModel()) {
                             xInputState = xInputState,
                             xInputEngine = viewModel.xInputEngine,
                             hapticsEnabled = userSettings.hapticFeedbackEnabled,
+                            antiDeadzone = userSettings.fpsAntiDeadzone,
                             onSelectPreset = viewModel::selectActivePreset
                         )
                     }

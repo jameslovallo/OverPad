@@ -1,5 +1,6 @@
 package com.example.ui.gamepad
 
+import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -18,12 +19,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,12 +47,12 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.ControlPlacement
 import com.example.model.ControlType
 import com.example.model.ControllerPreset
+import com.example.model.PresetCategory
 import com.example.model.TriggerDragMode
 import com.example.ui.theme.ChakraPetchFontFamily
 import com.example.ui.theme.ElectricCyan
@@ -64,8 +66,12 @@ import com.example.ui.theme.XboxBlue
 import com.example.ui.theme.XboxGreen
 import com.example.ui.theme.XboxRed
 import com.example.xinput.DPadDirectionState
+import com.example.xinput.TouchMouseLookFilter
 import com.example.xinput.XInputControllerEngine
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -79,6 +85,7 @@ fun GamepadControlNode(
     interactive: Boolean,
     isSelectedInEditor: Boolean = false,
     hapticsEnabled: Boolean = true,
+    antiDeadzone: Float = TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE,
     onSettingsClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -109,11 +116,16 @@ fun GamepadControlNode(
     ) {
         when (type) {
             ControlType.LEFT_STICK, ControlType.RIGHT_STICK -> {
+                val isFpsRightMouse = type == ControlType.RIGHT_STICK &&
+                    (preset.category == PresetCategory.FPS || preset.fpsRightZoneEnabled)
                 ThumbstickWidget(
                     isLeft = type == ControlType.LEFT_STICK,
                     scale = placement.scale,
                     interactive = interactive,
                     invertY = (type == ControlType.RIGHT_STICK && preset.invertRightY),
+                    mouseLookMode = isFpsRightMouse,
+                    sensitivity = preset.fpsLookSensitivity,
+                    antiDeadzone = antiDeadzone,
                     onDeflect = { x, y ->
                         if (type == ControlType.LEFT_STICK) {
                             engine?.updateLeftStick(x, y)
@@ -138,6 +150,7 @@ fun GamepadControlNode(
                     controlType = type,
                     preset = preset,
                     interactive = interactive,
+                    antiDeadzone = antiDeadzone,
                     onUpdate = { pressed, dragX, dragY ->
                         engine?.updateTriggerWithDragAim(type, pressed, dragX, dragY)
                     },
@@ -189,6 +202,9 @@ private fun ThumbstickWidget(
     scale: Float,
     interactive: Boolean,
     invertY: Boolean,
+    mouseLookMode: Boolean = false,
+    sensitivity: Float = 1.45f,
+    antiDeadzone: Float = TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE,
     onDeflect: (Float, Float) -> Unit,
     onTouchDown: () -> Unit
 ) {
@@ -196,12 +212,33 @@ private fun ThumbstickWidget(
     var normY by remember { mutableFloatStateOf(0f) }
     var active by remember { mutableStateOf(false) }
 
-    val accent = if (isLeft) ElectricCyan else TacticalEmerald
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val mouseFilter = remember { TouchMouseLookFilter() }
+    val currentInvertY by rememberUpdatedState(invertY)
+    val currentSensitivity by rememberUpdatedState(sensitivity)
+    val currentAntiDeadzone by rememberUpdatedState(antiDeadzone)
+    val currentOnDeflect by rememberUpdatedState(onDeflect)
+
+    DisposableEffect(Unit) {
+        onDispose {
+            mouseFilter.reset()
+        }
+    }
+
+    val accent = when {
+        isLeft -> ElectricCyan
+        mouseLookMode -> ElectricCyan
+        else -> TacticalEmerald
+    }
 
     val touchMod = if (interactive) {
-        Modifier.pointerInput(isLeft, invertY) {
+        Modifier.pointerInput(isLeft, mouseLookMode) {
             awaitPointerEventScope {
                 var activePointerId: PointerId? = null
+                var prevPos = Offset.Zero
+                var decayJob: Job? = null
+
                 while (true) {
                     val event = awaitPointerEvent(PointerEventPass.Main)
                     if (activePointerId == null) {
@@ -210,34 +247,79 @@ private fun ThumbstickWidget(
                             activePointerId = down.id
                             active = true
                             onTouchDown()
-                            val center = Offset(size.width / 2f, size.height / 2f)
-                            val maxRadius = (minOf(size.width, size.height) * 0.36f).coerceAtLeast(1f)
-                            val delta = down.position - center
-                            val dist = hypot(delta.x, delta.y)
-                            val clamped = if (dist > maxRadius) delta * (maxRadius / dist) else delta
-                            normX = (clamped.x / maxRadius).coerceIn(-1f, 1f)
-                            normY = (clamped.y / maxRadius).coerceIn(-1f, 1f)
-                            onDeflect(normX, if (invertY) -normY else normY)
+                            if (mouseLookMode) {
+                                prevPos = down.position
+                                mouseFilter.onPointerDown(down.uptimeMillis)
+                                normX = 0f
+                                normY = 0f
+                                currentOnDeflect(0f, 0f)
+                                decayJob?.cancel()
+                                decayJob = scope.launch {
+                                    while (isActive && activePointerId != null) {
+                                        delay(12L)
+                                        val decayed = mouseFilter.decayIfIdle(
+                                            nowUptimeMs = SystemClock.uptimeMillis(),
+                                            sensitivity = currentSensitivity,
+                                            antiDeadzone = currentAntiDeadzone
+                                        )
+                                        if (decayed != null) {
+                                            normX = decayed.first
+                                            normY = decayed.second
+                                            currentOnDeflect(
+                                                decayed.first,
+                                                if (currentInvertY) -decayed.second else decayed.second
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                val center = Offset(size.width / 2f, size.height / 2f)
+                                val maxRadius = (minOf(size.width, size.height) * 0.36f).coerceAtLeast(1f)
+                                val delta = down.position - center
+                                val dist = hypot(delta.x, delta.y)
+                                val clamped = if (dist > maxRadius) delta * (maxRadius / dist) else delta
+                                normX = (clamped.x / maxRadius).coerceIn(-1f, 1f)
+                                normY = (clamped.y / maxRadius).coerceIn(-1f, 1f)
+                                currentOnDeflect(normX, if (currentInvertY) -normY else normY)
+                            }
                             down.consume()
                         }
                     } else {
                         val change = event.changes.firstOrNull { it.id == activePointerId }
                         if (change == null || !change.pressed) {
                             activePointerId = null
+                            decayJob?.cancel()
+                            decayJob = null
+                            mouseFilter.reset()
                             active = false
                             normX = 0f
                             normY = 0f
-                            onDeflect(0f, 0f)
+                            currentOnDeflect(0f, 0f)
                             change?.consume()
                         } else {
-                            val center = Offset(size.width / 2f, size.height / 2f)
-                            val maxRadius = (minOf(size.width, size.height) * 0.36f).coerceAtLeast(1f)
-                            val delta = change.position - center
-                            val dist = hypot(delta.x, delta.y)
-                            val clamped = if (dist > maxRadius) delta * (maxRadius / dist) else delta
-                            normX = (clamped.x / maxRadius).coerceIn(-1f, 1f)
-                            normY = (clamped.y / maxRadius).coerceIn(-1f, 1f)
-                            onDeflect(normX, if (invertY) -normY else normY)
+                            if (mouseLookMode) {
+                                val deltaPx = change.position - prevPos
+                                prevPos = change.position
+                                val (rx, ryRaw) = mouseFilter.onPointerMove(
+                                    dxDp = deltaPx.x / density.density,
+                                    dyDp = deltaPx.y / density.density,
+                                    uptimeMs = change.uptimeMillis,
+                                    sensitivity = currentSensitivity,
+                                    antiDeadzone = currentAntiDeadzone
+                                )
+                                normX = rx
+                                normY = ryRaw
+                                currentOnDeflect(rx, if (currentInvertY) -ryRaw else ryRaw)
+                            } else {
+                                val center = Offset(size.width / 2f, size.height / 2f)
+                                val maxRadius = (minOf(size.width, size.height) * 0.36f).coerceAtLeast(1f)
+                                val delta = change.position - center
+                                val dist = hypot(delta.x, delta.y)
+                                val clamped = if (dist > maxRadius) delta * (maxRadius / dist) else delta
+                                normX = (clamped.x / maxRadius).coerceIn(-1f, 1f)
+                                normY = (clamped.y / maxRadius).coerceIn(-1f, 1f)
+                                currentOnDeflect(normX, if (currentInvertY) -normY else normY)
+                            }
                             change.consume()
                         }
                     }
@@ -271,13 +353,13 @@ private fun ThumbstickWidget(
                 style = Stroke(width = (2.2f * scale).dp.toPx())
             )
 
-            // Subtle 8-way cardinal ticks inside gate
+            // Subtle 8-way cardinal ticks inside gate (or crosshair ticks in mouse-look mode)
             for (i in 0 until 8) {
                 val angle = (i * Math.PI / 4.0).toFloat()
                 val inner = outerRadius * 0.80f
                 val outer = outerRadius * 0.94f
                 drawLine(
-                    color = Color(0xFF475569).copy(alpha = 0.65f),
+                    color = if (mouseLookMode) accent.copy(alpha = 0.45f) else Color(0xFF475569).copy(alpha = 0.65f),
                     start = center + Offset(cos(angle) * inner, sin(angle) * inner),
                     end = center + Offset(cos(angle) * outer, sin(angle) * outer),
                     strokeWidth = 1.5.dp.toPx(),
@@ -503,35 +585,40 @@ private fun TriggerDragAimWidget(
     controlType: ControlType,
     preset: ControllerPreset,
     interactive: Boolean,
+    antiDeadzone: Float = TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE,
     onUpdate: (pressed: Boolean, dragX: Float, dragY: Float) -> Unit,
     onTouchDown: () -> Unit
 ) {
     var pressed by remember { mutableStateOf(false) }
     var dragVecX by remember { mutableFloatStateOf(0f) }
     var dragVecY by remember { mutableFloatStateOf(0f) }
-    var lastSwipeMoveMs by remember { mutableLongStateOf(0L) }
 
     val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val swipeFilter = remember { TouchMouseLookFilter() }
     val dragRadiusPx = with(density) { preset.triggerDragRadiusDp.coerceAtLeast(32f).dp.toPx() }
     val isRt = controlType == ControlType.TRIGGER_RT
     val activeColor = if (isRt) XboxRed else TriggerAmber
 
-    // Decay velocity back to zero if swipe mode is paused
-    LaunchedEffect(pressed, lastSwipeMoveMs, preset.triggerDragMode) {
-        if (pressed && preset.triggerDragAimEnabled && preset.triggerDragMode == TriggerDragMode.SWIPE_VELOCITY) {
-            delay(45L)
-            dragVecX = 0f
-            dragVecY = 0f
-            onUpdate(true, 0f, 0f)
+    val currentSensitivity by rememberUpdatedState(preset.fpsLookSensitivity)
+    val currentInvertY by rememberUpdatedState(preset.invertRightY)
+    val currentAntiDeadzone by rememberUpdatedState(antiDeadzone)
+    val currentOnUpdate by rememberUpdatedState(onUpdate)
+
+    DisposableEffect(Unit) {
+        onDispose {
+            swipeFilter.reset()
         }
     }
 
     val touchMod = if (interactive) {
-        Modifier.pointerInput(controlType, preset.triggerDragAimEnabled, preset.triggerDragMode, preset.fpsLookSensitivity, preset.invertRightY) {
+        Modifier.pointerInput(controlType, preset.triggerDragAimEnabled, preset.triggerDragMode) {
             awaitPointerEventScope {
                 var activePointerId: PointerId? = null
                 var anchor = Offset.Zero
                 var prevPos = Offset.Zero
+                var decayJob: Job? = null
+
                 while (true) {
                     val event = awaitPointerEvent(PointerEventPass.Main)
                     if (activePointerId == null) {
@@ -544,17 +631,44 @@ private fun TriggerDragAimWidget(
                             dragVecX = 0f
                             dragVecY = 0f
                             onTouchDown()
-                            onUpdate(true, 0f, 0f)
+                            currentOnUpdate(true, 0f, 0f)
+
+                            if (preset.triggerDragAimEnabled && preset.triggerDragMode == TriggerDragMode.SWIPE_VELOCITY) {
+                                swipeFilter.onPointerDown(down.uptimeMillis)
+                                decayJob?.cancel()
+                                decayJob = scope.launch {
+                                    while (isActive && activePointerId != null) {
+                                        delay(12L)
+                                        val decayed = swipeFilter.decayIfIdle(
+                                            nowUptimeMs = SystemClock.uptimeMillis(),
+                                            sensitivity = currentSensitivity,
+                                            antiDeadzone = currentAntiDeadzone
+                                        )
+                                        if (decayed != null) {
+                                            dragVecX = decayed.first
+                                            dragVecY = decayed.second
+                                            currentOnUpdate(
+                                                true,
+                                                decayed.first,
+                                                if (currentInvertY) -decayed.second else decayed.second
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                             down.consume()
                         }
                     } else {
                         val change = event.changes.firstOrNull { it.id == activePointerId }
                         if (change == null || !change.pressed) {
                             activePointerId = null
+                            decayJob?.cancel()
+                            decayJob = null
+                            swipeFilter.reset()
                             pressed = false
                             dragVecX = 0f
                             dragVecY = 0f
-                            onUpdate(false, 0f, 0f)
+                            currentOnUpdate(false, 0f, 0f)
                             change?.consume()
                         } else {
                             if (preset.triggerDragAimEnabled) {
@@ -566,17 +680,20 @@ private fun TriggerDragAimWidget(
                                     val rawY = (clamped.y / dragRadiusPx).coerceIn(-1f, 1f)
                                     dragVecX = rawX
                                     dragVecY = rawY
-                                    onUpdate(true, rawX, if (preset.invertRightY) -rawY else rawY)
+                                    currentOnUpdate(true, rawX, if (currentInvertY) -rawY else rawY)
                                 } else {
                                     val step = change.position - prevPos
                                     prevPos = change.position
-                                    val scaleFactor = (18f / preset.fpsLookSensitivity.coerceIn(0.4f, 3.5f)) * density.density
-                                    val rawX = (step.x / scaleFactor).coerceIn(-1f, 1f)
-                                    val rawY = (step.y / scaleFactor).coerceIn(-1f, 1f)
-                                    dragVecX = rawX
-                                    dragVecY = rawY
-                                    lastSwipeMoveMs = System.currentTimeMillis()
-                                    onUpdate(true, rawX, if (preset.invertRightY) -rawY else rawY)
+                                    val (rx, ryRaw) = swipeFilter.onPointerMove(
+                                        dxDp = step.x / density.density,
+                                        dyDp = step.y / density.density,
+                                        uptimeMs = change.uptimeMillis,
+                                        sensitivity = currentSensitivity,
+                                        antiDeadzone = currentAntiDeadzone
+                                    )
+                                    dragVecX = rx
+                                    dragVecY = ryRaw
+                                    currentOnUpdate(true, rx, if (currentInvertY) -ryRaw else ryRaw)
                                 }
                             }
                             change.consume()
@@ -842,37 +959,45 @@ private fun presetScaleText(type: ControlType): Float = when (type) {
 }
 
 /**
- * Right-side screen FPS touch-look surface.
- * Dragging anywhere in this zone converts finger delta velocity into smooth Right Thumbstick (RX, RY) output
- * and decays immediately back to (0, 0) when finger pauses or lifts.
+ * Right-side screen FPS mouse-like touch-look surface.
+ * Converts 1:1 finger swipe velocity (dp/sec) with EMA smoothing and game deadzone compensation
+ * into Right Thumbstick (RX, RY) output, gliding cleanly back to (0, 0) when the thumb pauses or lifts.
  */
 @Composable
 fun FpsRightLookZoneSurface(
     preset: ControllerPreset,
     engine: XInputControllerEngine?,
     showGuideOverlay: Boolean,
+    antiDeadzone: Float = TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE,
     modifier: Modifier = Modifier
 ) {
     if (!preset.fpsRightZoneEnabled) return
 
     val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val mouseLookFilter = remember { TouchMouseLookFilter() }
     var activeLook by remember { mutableStateOf(false) }
-    var lastMoveTimestamp by remember { mutableLongStateOf(0L) }
-    var currentPos by remember { mutableStateOf(Offset.Zero) }
 
-    LaunchedEffect(activeLook, lastMoveTimestamp) {
-        if (activeLook) {
-            delay(40L)
-            engine?.updateFpsLookZoneStick(0f, 0f)
+    val currentSensitivity by rememberUpdatedState(preset.fpsLookSensitivity)
+    val currentInvertY by rememberUpdatedState(preset.invertRightY)
+    val currentAntiDeadzone by rememberUpdatedState(antiDeadzone)
+    val currentEngine by rememberUpdatedState(engine)
+
+    DisposableEffect(Unit) {
+        onDispose {
+            mouseLookFilter.reset()
+            currentEngine?.updateFpsLookZoneStick(0f, 0f)
         }
     }
 
     Box(
         modifier = modifier
-            .pointerInput(preset.fpsLookSensitivity, preset.invertRightY) {
+            .pointerInput(preset.fpsRightZoneEnabled) {
                 awaitPointerEventScope {
                     var activePointerId: PointerId? = null
                     var prevPos = Offset.Zero
+                    var decayJob: Job? = null
+
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Main)
                         if (activePointerId == null) {
@@ -880,27 +1005,50 @@ fun FpsRightLookZoneSurface(
                             if (down != null) {
                                 activePointerId = down.id
                                 prevPos = down.position
-                                currentPos = down.position
                                 activeLook = true
+                                mouseLookFilter.onPointerDown(down.uptimeMillis)
+                                currentEngine?.updateFpsLookZoneStick(0f, 0f)
+                                decayJob?.cancel()
+                                decayJob = scope.launch {
+                                    while (isActive && activePointerId != null) {
+                                        delay(12L)
+                                        val decayed = mouseLookFilter.decayIfIdle(
+                                            nowUptimeMs = SystemClock.uptimeMillis(),
+                                            sensitivity = currentSensitivity,
+                                            antiDeadzone = currentAntiDeadzone
+                                        )
+                                        if (decayed != null) {
+                                            currentEngine?.updateFpsLookZoneStick(
+                                                decayed.first,
+                                                if (currentInvertY) -decayed.second else decayed.second
+                                            )
+                                        }
+                                    }
+                                }
                                 down.consume()
                             }
                         } else {
                             val change = event.changes.firstOrNull { it.id == activePointerId }
                             if (change == null || !change.pressed) {
                                 activePointerId = null
+                                decayJob?.cancel()
+                                decayJob = null
+                                mouseLookFilter.reset()
                                 activeLook = false
-                                engine?.updateFpsLookZoneStick(0f, 0f)
+                                currentEngine?.updateFpsLookZoneStick(0f, 0f)
                                 change?.consume()
                             } else {
-                                val delta = change.position - prevPos
+                                val deltaPx = change.position - prevPos
                                 prevPos = change.position
-                                currentPos = change.position
-                                val divisor = (16f / preset.fpsLookSensitivity.coerceIn(0.4f, 3.5f)) * density.density
-                                val rx = (delta.x / divisor).coerceIn(-1f, 1f)
-                                val ryRaw = (delta.y / divisor).coerceIn(-1f, 1f)
-                                val ry = if (preset.invertRightY) -ryRaw else ryRaw
-                                lastMoveTimestamp = System.currentTimeMillis()
-                                engine?.updateFpsLookZoneStick(rx, ry)
+                                val (rx, ryRaw) = mouseLookFilter.onPointerMove(
+                                    dxDp = deltaPx.x / density.density,
+                                    dyDp = deltaPx.y / density.density,
+                                    uptimeMs = change.uptimeMillis,
+                                    sensitivity = currentSensitivity,
+                                    antiDeadzone = currentAntiDeadzone
+                                )
+                                val ry = if (currentInvertY) -ryRaw else ryRaw
+                                currentEngine?.updateFpsLookZoneStick(rx, ry)
                                 change.consume()
                             }
                         }
@@ -922,7 +1070,7 @@ fun FpsRightLookZoneSurface(
                 contentAlignment = Alignment.TopEnd
             ) {
                 Text(
-                    text = if (activeLook) "FPS LOOK ACTIVE" else "FPS RIGHT-SIDE LOOK ZONE (DRAG)",
+                    text = if (activeLook) "MOUSE-LOOK ACTIVE" else "FPS MOUSE-LOOK ZONE (SWIPE)",
                     style = MaterialTheme.typography.labelSmall,
                     color = ElectricCyan.copy(alpha = 0.78f)
                 )

@@ -229,11 +229,14 @@ class OperPadOverlayService : Service() {
         val view = ComposeView(this).apply {
             lifecycleOwner.attachToView(this)
             setContent {
+                val settings by app.repository.userSettingsFlow.collectAsState(initial = null)
                 OperPadTheme(darkTheme = true) {
                     FpsRightLookZoneSurface(
                         preset = preset,
                         engine = app.xInputEngine,
                         showGuideOverlay = false,
+                        antiDeadzone = settings?.fpsAntiDeadzone
+                            ?: com.example.xinput.TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -275,6 +278,8 @@ class OperPadOverlayService : Service() {
                         engine = app.xInputEngine,
                         interactive = true,
                         hapticsEnabled = settings?.hapticFeedbackEnabled ?: true,
+                        antiDeadzone = settings?.fpsAntiDeadzone
+                            ?: com.example.xinput.TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE,
                         onSettingsClick = if (placement.type == ControlType.SETTINGS) {
                             {
                                 app.xInputEngine.resetAll()
@@ -304,9 +309,15 @@ class OperPadOverlayService : Service() {
             setContent {
                 val runtime by app.overlayState.collectAsState()
                 val presets by app.repository.presetsFlow.collectAsState(initial = cachedPresets)
+                val settings by app.repository.userSettingsFlow.collectAsState(initial = null)
                 OverlaySettingsHud(
                     runtimeState = runtime,
                     allPresets = presets.ifEmpty { DefaultPresets.all },
+                    antiDeadzone = settings?.fpsAntiDeadzone
+                        ?: com.example.xinput.TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE,
+                    onUpdateAntiDeadzone = { boost ->
+                        serviceScope.launch { app.repository.setFpsAntiDeadzone(boost) }
+                    },
                     onSelectPreset = { selected ->
                         manualOverridePackage = runtime.detectedPackageName
                         app.updateOverlayState { it.copy(activePreset = selected, autoMatchedByApp = false) }
