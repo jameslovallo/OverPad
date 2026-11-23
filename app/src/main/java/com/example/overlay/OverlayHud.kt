@@ -229,6 +229,28 @@ fun OverlaySettingsHud(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
+                        Text("Left-Half Screen Move", style = MaterialTheme.typography.titleSmall)
+                        Switch(
+                            checked = preset.leftMoveZoneEnabled,
+                            onCheckedChange = { enabled ->
+                                val updatedControls = preset.controls.map {
+                                    if (it.type == ControlType.LEFT_STICK) it.copy(visible = !enabled) else it
+                                }
+                                onUpdatePreset(
+                                    preset.copy(
+                                        leftMoveZoneEnabled = enabled,
+                                        controls = updatedControls
+                                    )
+                                )
+                            }
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Text("Right-Half Screen Look", style = MaterialTheme.typography.titleSmall)
                         Switch(
                             checked = preset.fpsRightZoneEnabled,

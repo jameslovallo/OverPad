@@ -77,6 +77,13 @@ class OperPadEngineTest {
         assertTrue((state.buttonsMask and XInputState.XINPUT_GAMEPAD_DPAD_UP) != 0)
         assertTrue((state.buttonsMask and XInputState.XINPUT_GAMEPAD_DPAD_RIGHT) != 0)
         assertEquals(20, state.toBinaryPacket().size)
+
+        engine.resetAll()
+        engine.updateLeftMoveZoneStick(0.7f, -0.6f)
+        val touchMoveState = engine.state.value
+        assertEquals(0.7f, touchMoveState.thumbLX, 0.001f)
+        assertEquals(-0.6f, touchMoveState.thumbLY, 0.001f)
+        assertTrue("Left Touch Move" in touchMoveState.activeSources)
     }
 
     @Test

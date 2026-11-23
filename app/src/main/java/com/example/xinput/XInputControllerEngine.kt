@@ -42,8 +42,11 @@ class XInputControllerEngine {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
 
-    private var leftStickX = 0f
-    private var leftStickY = 0f
+    private var directLeftStickX = 0f
+    private var directLeftStickY = 0f
+
+    private var leftZoneStickX = 0f
+    private var leftZoneStickY = 0f
 
     private var directRightStickX = 0f
     private var directRightStickY = 0f
@@ -98,8 +101,16 @@ class XInputControllerEngine {
 
     fun updateLeftStick(x: Float, y: Float) {
         synchronized(lock) {
-            leftStickX = x.coerceIn(-1f, 1f)
-            leftStickY = y.coerceIn(-1f, 1f)
+            directLeftStickX = x.coerceIn(-1f, 1f)
+            directLeftStickY = y.coerceIn(-1f, 1f)
+            publishLocked()
+        }
+    }
+
+    fun updateLeftMoveZoneStick(x: Float, y: Float) {
+        synchronized(lock) {
+            leftZoneStickX = x.coerceIn(-1f, 1f)
+            leftZoneStickY = y.coerceIn(-1f, 1f)
             publishLocked()
         }
     }
@@ -168,8 +179,10 @@ class XInputControllerEngine {
 
     fun resetAll() {
         synchronized(lock) {
-            leftStickX = 0f
-            leftStickY = 0f
+            directLeftStickX = 0f
+            directLeftStickY = 0f
+            leftZoneStickX = 0f
+            leftZoneStickY = 0f
             directRightStickX = 0f
             directRightStickY = 0f
             fpsZoneStickX = 0f
@@ -185,6 +198,8 @@ class XInputControllerEngine {
     }
 
     private fun publishLocked() {
+        val combinedLX = (directLeftStickX + leftZoneStickX).coerceIn(-1f, 1f)
+        val combinedLY = (directLeftStickY + leftZoneStickY).coerceIn(-1f, 1f)
         val combinedRX = (directRightStickX + fpsZoneStickX + ltDragStickX + rtDragStickX).coerceIn(-1f, 1f)
         val combinedRY = (directRightStickY + fpsZoneStickY + ltDragStickY + rtDragStickY).coerceIn(-1f, 1f)
 
@@ -266,7 +281,8 @@ class XInputControllerEngine {
         }
 
         val sources = mutableSetOf<String>()
-        if (abs(leftStickX) > 0.02f || abs(leftStickY) > 0.02f) sources += "Left Stick"
+        if (abs(directLeftStickX) > 0.02f || abs(directLeftStickY) > 0.02f) sources += "Left Stick"
+        if (abs(leftZoneStickX) > 0.02f || abs(leftZoneStickY) > 0.02f) sources += "Left Touch Move"
         if (abs(directRightStickX) > 0.02f || abs(directRightStickY) > 0.02f) sources += "Right Stick"
         if (abs(fpsZoneStickX) > 0.02f || abs(fpsZoneStickY) > 0.02f) sources += "FPS Look Zone"
         if (ltDown && (abs(ltDragStickX) > 0.02f || abs(ltDragStickY) > 0.02f)) sources += "LT+Drag Aim"
@@ -277,8 +293,8 @@ class XInputControllerEngine {
             buttonsMask = mask,
             leftTrigger = if (ltDown) 1f else 0f,
             rightTrigger = if (rtDown) 1f else 0f,
-            thumbLX = leftStickX,
-            thumbLY = leftStickY,
+            thumbLX = combinedLX,
+            thumbLY = combinedLY,
             thumbRX = combinedRX,
             thumbRY = combinedRY,
             dpadUp = dpad.up,

@@ -968,6 +968,151 @@ private fun SettingsOverlayButton(
 private const val TRIGGER_DRAG_SQUISH_GUARD_DP = 1.5f
 
 /**
+ * Left-side tap-anywhere floating thumbstick movement surface.
+ * Touch-down anchors a virtual stick origin beneath the finger; dragging deflects
+ * Left Thumbstick (LX, LY) smoothly with a soft leash for quick direction reversals.
+ */
+@Composable
+fun LeftMoveZoneSurface(
+    preset: ControllerPreset,
+    engine: XInputControllerEngine?,
+    showGuideOverlay: Boolean,
+    hapticsEnabled: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    if (!preset.leftMoveZoneEnabled) return
+
+    val density = LocalDensity.current
+    val view = LocalView.current
+    var activeMove by remember { mutableStateOf(false) }
+    var anchorPos by remember { mutableStateOf(Offset.Zero) }
+    var thumbPos by remember { mutableStateOf(Offset.Zero) }
+
+    val currentEngine by rememberUpdatedState(engine)
+    val currentHaptics by rememberUpdatedState(hapticsEnabled)
+
+    DisposableEffect(Unit) {
+        onDispose {
+            currentEngine?.updateLeftMoveZoneStick(0f, 0f)
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .pointerInput(preset.leftMoveZoneEnabled) {
+                val maxRadiusPx = with(density) { 44.dp.toPx() }.coerceAtLeast(1f)
+                val leashRadiusPx = maxRadiusPx * 1.5f
+                awaitPointerEventScope {
+                    var activePointerId: PointerId? = null
+                    var currentAnchor = Offset.Zero
+
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Main)
+                        if (activePointerId == null) {
+                            val down = event.changes.firstOrNull { it.pressed }
+                            if (down != null) {
+                                activePointerId = down.id
+                                currentAnchor = down.position
+                                anchorPos = currentAnchor
+                                thumbPos = currentAnchor
+                                activeMove = true
+                                if (currentHaptics) {
+                                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                                }
+                                currentEngine?.updateLeftMoveZoneStick(0f, 0f)
+                                down.consume()
+                            }
+                        } else {
+                            val change = event.changes.firstOrNull { it.id == activePointerId }
+                            if (change == null || !change.pressed) {
+                                activePointerId = null
+                                activeMove = false
+                                currentEngine?.updateLeftMoveZoneStick(0f, 0f)
+                                change?.consume()
+                            } else {
+                                var delta = change.position - currentAnchor
+                                val dist = hypot(delta.x, delta.y)
+                                if (dist > leashRadiusPx) {
+                                    currentAnchor = change.position - delta * (leashRadiusPx / dist)
+                                    anchorPos = currentAnchor
+                                    delta = change.position - currentAnchor
+                                }
+                                val clampedDist = hypot(delta.x, delta.y)
+                                val clamped = if (clampedDist > maxRadiusPx) {
+                                    delta * (maxRadiusPx / clampedDist)
+                                } else {
+                                    delta
+                                }
+                                thumbPos = currentAnchor + clamped
+                                val lx = (clamped.x / maxRadiusPx).coerceIn(-1f, 1f)
+                                val ly = (clamped.y / maxRadiusPx).coerceIn(-1f, 1f)
+                                currentEngine?.updateLeftMoveZoneStick(lx, ly)
+                                change.consume()
+                            }
+                        }
+                    }
+                }
+            }
+    ) {
+        if (showGuideOverlay) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(TacticalEmerald.copy(alpha = if (activeMove) 0.09f else 0.04f))
+                    .border(
+                        width = 1.dp,
+                        color = TacticalEmerald.copy(alpha = if (activeMove) 0.45f else 0.22f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    .padding(10.dp),
+                contentAlignment = Alignment.TopStart
+            ) {
+                Text(
+                    text = if (activeMove) "TOUCH-MOVE ACTIVE" else "LEFT MOVE ZONE (TAP & DRAG)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TacticalEmerald.copy(alpha = 0.78f)
+                )
+            }
+        }
+        if (activeMove) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val ringRadius = 44.dp.toPx()
+                val puckRadius = 18.dp.toPx()
+                drawCircle(
+                    color = TacticalEmerald.copy(alpha = 0.14f),
+                    radius = ringRadius,
+                    center = anchorPos
+                )
+                drawCircle(
+                    color = TacticalEmerald.copy(alpha = 0.55f),
+                    radius = ringRadius,
+                    center = anchorPos,
+                    style = Stroke(width = 1.8.dp.toPx())
+                )
+                drawLine(
+                    color = TacticalEmerald.copy(alpha = 0.45f),
+                    start = anchorPos,
+                    end = thumbPos,
+                    strokeWidth = 2.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+                drawCircle(
+                    color = TacticalEmerald.copy(alpha = 0.48f),
+                    radius = puckRadius,
+                    center = thumbPos
+                )
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.75f),
+                    radius = puckRadius,
+                    center = thumbPos,
+                    style = Stroke(width = 1.5.dp.toPx())
+                )
+            }
+        }
+    }
+}
+
+/**
  * Right-side screen FPS mouse-like touch-look surface.
  * Converts 1:1 finger swipe velocity (dp/sec) with EMA smoothing and game deadzone compensation
  * into Right Thumbstick (RX, RY) output, gliding cleanly back to (0, 0) when the thumb pauses or lifts.

@@ -31,6 +31,7 @@ data class ControllerPreset(
     val opacity: Float = 0.78f,
     val gridStepDp: Int = 24,
     val snapToGrid: Boolean = true,
+    val leftMoveZoneEnabled: Boolean = false,
     val fpsRightZoneEnabled: Boolean = false,
     val fpsLookSensitivity: Float = TouchMouseLookFilter.DEFAULT_SENSITIVITY,
     val triggerDragAimEnabled: Boolean = true,

@@ -31,6 +31,7 @@ import com.example.model.ControllerPreset
 import com.example.model.DefaultPresets
 import com.example.ui.gamepad.FpsRightLookZoneSurface
 import com.example.ui.gamepad.GamepadControlNode
+import com.example.ui.gamepad.LeftMoveZoneSurface
 import com.example.ui.theme.OperPadTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +52,7 @@ class OperPadOverlayService : Service() {
     private val lifecycleOwner = OverlayLifecycleOwner()
 
     private val activeControlViews = mutableListOf<ComposeView>()
+    private var leftMoveZoneView: ComposeView? = null
     private var fpsZoneView: ComposeView? = null
     private var hudOverlayView: ComposeView? = null
     private var editOverlayView: ComposeView? = null
@@ -182,6 +184,7 @@ class OperPadOverlayService : Service() {
         val signature = buildString {
             append(preset.id).append('|')
             append(preset.opacity).append('|')
+            append(preset.leftMoveZoneEnabled).append('|')
             append(preset.fpsRightZoneEnabled).append('|')
             append(preset.triggerDragAimEnabled).append('|')
             append(screenW).append('x').append(screenH).append('|')
@@ -202,7 +205,10 @@ class OperPadOverlayService : Service() {
             return
         }
 
-        // 1. Optional Right-Side FPS Look Zone behind right-side controls
+        // 1. Optional Left-Side Tap-Anywhere Move Zone & Right-Side FPS Look Zone behind controls
+        if (preset.leftMoveZoneEnabled && !isSettingsOpen) {
+            attachLeftMoveZoneWindow(preset, screenW, screenH)
+        }
         if (preset.fpsRightZoneEnabled && !isSettingsOpen) {
             attachFpsLookZoneWindow(preset, screenW, screenH)
         }
@@ -217,6 +223,35 @@ class OperPadOverlayService : Service() {
         // 3. Optional Quick Settings HUD
         if (isSettingsOpen) {
             attachSettingsHudWindow(screenW, screenH)
+        }
+    }
+
+    private fun attachLeftMoveZoneWindow(preset: ControllerPreset, screenW: Int, screenH: Int) {
+        val halfW = screenW / 2
+        val params = createOverlayLayoutParams(
+            width = halfW,
+            height = screenH,
+            x = 0,
+            y = 0
+        )
+        val view = ComposeView(this).apply {
+            lifecycleOwner.attachToView(this)
+            setContent {
+                val settings by app.repository.userSettingsFlow.collectAsState(initial = null)
+                OperPadTheme(darkTheme = true) {
+                    LeftMoveZoneSurface(
+                        preset = preset,
+                        engine = app.xInputEngine,
+                        showGuideOverlay = false,
+                        hapticsEnabled = settings?.hapticFeedbackEnabled ?: true,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        }
+        runCatching {
+            windowManager.addView(view, params)
+            leftMoveZoneView = view
         }
     }
 
@@ -392,6 +427,8 @@ class OperPadOverlayService : Service() {
     private fun clearAllOverlayViews() {
         activeControlViews.forEach { runCatching { windowManager.removeViewImmediate(it) } }
         activeControlViews.clear()
+        leftMoveZoneView?.let { runCatching { windowManager.removeViewImmediate(it) } }
+        leftMoveZoneView = null
         fpsZoneView?.let { runCatching { windowManager.removeViewImmediate(it) } }
         fpsZoneView = null
         hudOverlayView?.let { runCatching { windowManager.removeViewImmediate(it) } }

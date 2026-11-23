@@ -25,6 +25,7 @@ data class PresetEntity(
     val opacity: Float,
     val gridStepDp: Int,
     val snapToGrid: Boolean,
+    val leftMoveZoneEnabled: Boolean = false,
     val fpsRightZoneEnabled: Boolean,
     val fpsLookSensitivity: Float,
     val triggerDragAimEnabled: Boolean,
@@ -70,6 +71,7 @@ fun PresetEntity.toDomain(): ControllerPreset {
         opacity = opacity,
         gridStepDp = gridStepDp,
         snapToGrid = snapToGrid,
+        leftMoveZoneEnabled = leftMoveZoneEnabled,
         fpsRightZoneEnabled = fpsRightZoneEnabled,
         fpsLookSensitivity = fpsLookSensitivity.coerceIn(
             TouchMouseLookFilter.MIN_SENSITIVITY,
@@ -90,6 +92,7 @@ fun ControllerPreset.toEntity(): PresetEntity = PresetEntity(
     opacity = opacity,
     gridStepDp = gridStepDp,
     snapToGrid = snapToGrid,
+    leftMoveZoneEnabled = leftMoveZoneEnabled,
     fpsRightZoneEnabled = fpsRightZoneEnabled,
     fpsLookSensitivity = fpsLookSensitivity.coerceIn(
         TouchMouseLookFilter.MIN_SENSITIVITY,

@@ -58,6 +58,7 @@ import com.example.model.ControlType
 import com.example.model.ControllerPreset
 import com.example.ui.gamepad.FpsRightLookZoneSurface
 import com.example.ui.gamepad.GamepadControlNode
+import com.example.ui.gamepad.LeftMoveZoneSurface
 import com.example.xinput.TouchMouseLookFilter
 import com.example.xinput.XInputControllerEngine
 import com.example.xinput.XInputState
@@ -243,6 +244,17 @@ fun SandboxScreen(
                                 )
                             }
                         }
+
+                        LeftMoveZoneSurface(
+                            preset = activePreset,
+                            engine = xInputEngine,
+                            showGuideOverlay = true,
+                            hapticsEnabled = hapticsEnabled,
+                            modifier = Modifier
+                                .fillMaxWidth(0.5f)
+                                .fillMaxHeight()
+                                .align(Alignment.CenterStart)
+                        )
 
                         FpsRightLookZoneSurface(
                             preset = activePreset,

@@ -221,30 +221,38 @@ fun LayoutEditorScreen(
 
                         Spacer(Modifier.height(8.dp))
 
-                        val density = LocalDensity.current
-                        val gridColor = MaterialTheme.colorScheme.primary
-                        val zoneColor = MaterialTheme.colorScheme.secondary
-                        BoxWithConstraints(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(16f / 9.5f)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainer)
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
-                        ) {
-                            val widthPx = with(density) { maxWidth.toPx() }
-                            val heightPx = with(density) { maxHeight.toPx() }
-                            val canvasScale = (maxWidth / 760.dp).coerceIn(0.45f, 0.95f)
-                            val stepPx = with(density) { (preset.gridStepDp * canvasScale).dp.toPx() }.coerceAtLeast(10f)
+                            val density = LocalDensity.current
+                            val gridColor = MaterialTheme.colorScheme.primary
+                            val leftZoneColor = MaterialTheme.colorScheme.tertiary
+                            val zoneColor = MaterialTheme.colorScheme.secondary
+                            BoxWithConstraints(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(16f / 9.5f)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
+                            ) {
+                                val widthPx = with(density) { maxWidth.toPx() }
+                                val heightPx = with(density) { maxHeight.toPx() }
+                                val canvasScale = (maxWidth / 760.dp).coerceIn(0.45f, 0.95f)
+                                val stepPx = with(density) { (preset.gridStepDp * canvasScale).dp.toPx() }.coerceAtLeast(10f)
 
-                            Canvas(modifier = Modifier.fillMaxSize()) {
-                                if (preset.fpsRightZoneEnabled) {
-                                    drawRect(
-                                        color = zoneColor.copy(alpha = 0.06f),
-                                        topLeft = Offset(size.width / 2f, 0f),
-                                        size = Size(size.width / 2f, size.height)
-                                    )
-                                }
+                                Canvas(modifier = Modifier.fillMaxSize()) {
+                                    if (preset.leftMoveZoneEnabled) {
+                                        drawRect(
+                                            color = leftZoneColor.copy(alpha = 0.06f),
+                                            topLeft = Offset.Zero,
+                                            size = Size(size.width / 2f, size.height)
+                                        )
+                                    }
+                                    if (preset.fpsRightZoneEnabled) {
+                                        drawRect(
+                                            color = zoneColor.copy(alpha = 0.06f),
+                                            topLeft = Offset(size.width / 2f, 0f),
+                                            size = Size(size.width / 2f, size.height)
+                                        )
+                                    }
                                 var x = 0f
                                 while (x <= size.width) {
                                     drawLine(
@@ -581,6 +589,28 @@ fun LayoutEditorScreen(
                         }
 
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Left-Half Screen Move", style = MaterialTheme.typography.titleSmall)
+                            Switch(
+                                checked = preset.leftMoveZoneEnabled,
+                                onCheckedChange = { enabled ->
+                                    val updatedControls = preset.controls.map {
+                                        if (it.type == ControlType.LEFT_STICK) it.copy(visible = !enabled) else it
+                                    }
+                                    onUpdatePreset(
+                                        preset.copy(
+                                            leftMoveZoneEnabled = enabled,
+                                            controls = updatedControls
+                                        )
+                                    )
+                                }
+                            )
+                        }
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
