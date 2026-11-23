@@ -14,6 +14,7 @@ import java.io.BufferedWriter
 import java.io.File
 import java.io.OutputStreamWriter
 import java.lang.reflect.Method
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -29,6 +30,7 @@ import kotlin.math.roundToInt
 class ShizukuXInputService() : IXInputInjector.Stub() {
 
     enum class BackendMode {
+        STANDBY,
         UINPUT_XBOX360,
         UHID_XBOX,
         INJECT_EVENTS_ONLY
@@ -39,9 +41,9 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
     private var inputManagerInstance: Any? = null
     private var injectMethod: Method? = null
 
-    private var backendMode: BackendMode = BackendMode.INJECT_EVENTS_ONLY
+    private var backendMode: BackendMode = BackendMode.STANDBY
     private var virtualDeviceId: Int = -1
-    private var diagnosticsMessage: String = "Initializing bridge..."
+    private var diagnosticsMessage: String = "Overlay is off — virtual Xbox controller disconnected."
 
     private var bridgeProcess: Process? = null
     private var bridgeWriter: BufferedWriter? = null
@@ -63,7 +65,6 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
 
     init {
         initInjectorReflection()
-        ensureVirtualGamepad()
     }
 
     @SuppressLint("PrivateApi", "DiscouragedPrivateApi")
@@ -126,7 +127,8 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
         if (bridgeProcess?.isAlive == true && virtualDeviceId > 0 && InputDevice.getDevice(virtualDeviceId) != null) {
             return true
         }
-        closeBridgeProcessLocked()
+        closeBridgeProcessLocked(virtualDeviceId)
+        resetTrackingStateLocked()
 
         val uinputError: String?
         if (tryStartUinputXbox360Locked()) {
@@ -152,6 +154,18 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
         false
     }
 
+    override fun disconnectVirtualGamepad() = synchronized(lock) {
+        val prevId = virtualDeviceId
+        if (backendMode != BackendMode.STANDBY) {
+            runCatching { sendGamepadState(0, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f) }
+        }
+        closeBridgeProcessLocked(prevId)
+        resetTrackingStateLocked()
+        backendMode = BackendMode.STANDBY
+        virtualDeviceId = -1
+        diagnosticsMessage = "Overlay is off — virtual Xbox controller disconnected."
+    }
+
     private fun tryStartUinputXbox360Locked(): Boolean {
         val uinputCmd = if (File("/system/bin/uinput").exists()) {
             listOf("/system/bin/uinput", "-")
@@ -159,7 +173,7 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
             listOf(
                 "sh",
                 "-c",
-                "CLASSPATH=/system/framework/uinput.jar app_process /system/bin com.android.commands.uinput.Uinput -"
+                "CLASSPATH=/system/framework/uinput.jar exec app_process /system/bin com.android.commands.uinput.Uinput -"
             )
         }
         return startBridgeAndVerifyLocked(
@@ -194,7 +208,7 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
             listOf(
                 "sh",
                 "-c",
-                "CLASSPATH=/system/framework/hid.jar app_process /system/bin com.android.commands.hid.Hid -"
+                "CLASSPATH=/system/framework/hid.jar exec app_process /system/bin com.android.commands.hid.Hid -"
             )
         }
         return startBridgeAndVerifyLocked(
@@ -265,9 +279,9 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
             return false
         }
 
-        // Poll InputDevice registration for up to ~1000ms
+        // Poll InputDevice registration for up to ~1600ms
         var resolvedId = -1
-        for (attempt in 0 until 15) {
+        for (attempt in 0 until 22) {
             if (!proc.isAlive) {
                 break
             }
@@ -277,7 +291,7 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
                 excludedIds = beforeIds
             )
             if (resolvedId > 0) break
-            runCatching { Thread.sleep(70L) }
+            runCatching { Thread.sleep(75L) }
         }
 
         if (!proc.isAlive) {
@@ -348,6 +362,9 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
         hatX: Float,
         hatY: Float
     ) = synchronized(lock) {
+        if (backendMode == BackendMode.STANDBY) {
+            return@synchronized
+        }
         if (backendMode != BackendMode.INJECT_EVENTS_ONLY && bridgeProcess?.isAlive != true) {
             closeBridgeProcessLocked()
             backendMode = BackendMode.INJECT_EVENTS_ONLY
@@ -355,6 +372,7 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
         }
 
         when (backendMode) {
+            BackendMode.STANDBY -> Unit
             BackendMode.UHID_XBOX -> sendViaUhidLocked(
                 buttonsMask, leftTrigger, rightTrigger,
                 thumbLX, thumbLY, thumbRX, thumbRY, hatX, hatY
@@ -673,24 +691,52 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
         }.getOrDefault(false)
     }
 
-    private fun closeBridgeProcessLocked() {
+    private fun closeBridgeProcessLocked(previousDeviceId: Int = virtualDeviceId) {
+        runCatching { bridgeWriter?.flush() }
         runCatching { bridgeWriter?.close() }
         bridgeWriter = null
-        runCatching { bridgeProcess?.destroy() }
+        val proc = bridgeProcess
         bridgeProcess = null
+        if (proc != null) {
+            runCatching { proc.destroy() }
+            val exited = runCatching { proc.waitFor(250L, TimeUnit.MILLISECONDS) }.getOrDefault(false)
+            if (!exited && proc.isAlive) {
+                runCatching { proc.destroyForcibly() }
+                runCatching { proc.waitFor(150L, TimeUnit.MILLISECONDS) }
+            }
+        }
+        if (previousDeviceId > 0) {
+            for (i in 0 until 8) {
+                if (InputDevice.getDevice(previousDeviceId) == null) break
+                runCatching { Thread.sleep(40L) }
+            }
+        }
+    }
+
+    private fun resetTrackingStateLocked() {
+        prevButtonsMask = 0
+        prevLtDown = false
+        prevRtDown = false
+        prevLX = 0f
+        prevLY = 0f
+        prevRX = 0f
+        prevRY = 0f
+        prevLT = 0f
+        prevRT = 0f
+        prevHatX = 0f
+        prevHatY = 0f
+        motionDownTime = 0L
     }
 
     override fun resetAll() = synchronized(lock) {
-        sendGamepadState(0, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
+        if (backendMode != BackendMode.STANDBY) {
+            sendGamepadState(0, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
+        }
         motionDownTime = 0L
     }
 
     override fun destroy() {
-        synchronized(lock) {
-            runCatching { resetAll() }
-            closeBridgeProcessLocked()
-            virtualDeviceId = -1
-        }
+        disconnectVirtualGamepad()
         System.exit(0)
     }
 

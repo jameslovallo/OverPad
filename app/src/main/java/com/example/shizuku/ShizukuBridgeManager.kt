@@ -60,6 +60,8 @@ data class ShizukuStatus(
             stage != ShizukuConnectionStage.CONNECTED -> "Not Connected"
             virtualDeviceId > 0 ->
                 "Spoofed Xbox Pad #$virtualDeviceId ($backendMode • UID ${remoteUid ?: 2000})"
+            backendMode == "STANDBY" ->
+                "Standby (Overlay Off • UID ${remoteUid ?: 2000})"
             remoteUid == 0 ->
                 "Root UID 0 • $backendMode"
             else ->
@@ -76,6 +78,8 @@ class ShizukuBridgeManager(private val context: Context) {
 
     @Volatile
     private var injector: IXInputInjector? = null
+    @Volatile
+    private var overlayActive = false
     private var isBound = false
     private var listenersRegistered = false
 
@@ -101,20 +105,7 @@ class ShizukuBridgeManager(private val context: Context) {
             val remote = IXInputInjector.Stub.asInterface(service)
             injector = remote
             binderScope.launch {
-                val uid = runCatching { remote.uid }.getOrNull()
-                val uinput = runCatching { remote.isUinputWritable }.getOrDefault(false)
-                val deviceId = runCatching { remote.virtualDeviceId }.getOrDefault(-1)
-                val mode = runCatching { remote.backendMode }.getOrDefault("")
-                val diag = runCatching { remote.diagnostics }.getOrNull()
-                _status.value = _status.value.copy(
-                    isServiceConnected = true,
-                    remoteUid = uid,
-                    uinputWritable = uinput,
-                    virtualDeviceId = deviceId,
-                    backendMode = mode,
-                    diagnostics = diag,
-                    lastError = null
-                )
+                applyOverlayStateToRemote(remote, overlayActive)
             }
         }
 
@@ -225,6 +216,26 @@ class ShizukuBridgeManager(private val context: Context) {
         }
     }
 
+    fun setOverlayActive(active: Boolean) {
+        overlayActive = active
+        val remote = injector
+        if (remote == null) {
+            refreshStatusAndAutoConnect()
+            if (active) {
+                bindInjectorService()
+            } else {
+                _status.value = _status.value.copy(
+                    virtualDeviceId = -1,
+                    backendMode = if (_status.value.isServiceConnected) "STANDBY" else ""
+                )
+            }
+            return
+        }
+        binderScope.launch {
+            applyOverlayStateToRemote(remote, active)
+        }
+    }
+
     fun reprobeVirtualGamepad() {
         val remote = injector
         if (remote == null) {
@@ -233,25 +244,39 @@ class ShizukuBridgeManager(private val context: Context) {
             return
         }
         binderScope.launch {
-            runCatching {
+            applyOverlayStateToRemote(remote, overlayActive)
+        }
+    }
+
+    private fun applyOverlayStateToRemote(remote: IXInputInjector, active: Boolean) {
+        runCatching {
+            if (active) {
                 remote.ensureVirtualGamepad()
-                val deviceId = remote.virtualDeviceId
-                val mode = remote.backendMode
-                val diag = remote.diagnostics
-                _status.value = _status.value.copy(
-                    virtualDeviceId = deviceId,
-                    backendMode = mode,
-                    diagnostics = diag
-                )
-            }.onFailure { err ->
-                _status.value = _status.value.copy(lastError = err.message)
+            } else {
+                remote.disconnectVirtualGamepad()
             }
+            val uid = runCatching { remote.uid }.getOrNull()
+            val uinput = runCatching { remote.isUinputWritable }.getOrDefault(false)
+            val deviceId = runCatching { remote.virtualDeviceId }.getOrDefault(-1)
+            val mode = runCatching { remote.backendMode }.getOrDefault("")
+            val diag = runCatching { remote.diagnostics }.getOrNull()
+            _status.value = _status.value.copy(
+                isServiceConnected = true,
+                remoteUid = uid,
+                uinputWritable = uinput,
+                virtualDeviceId = deviceId,
+                backendMode = mode,
+                diagnostics = diag,
+                lastError = null
+            )
+        }.onFailure { err ->
+            _status.value = _status.value.copy(lastError = err.message)
         }
     }
 
     fun unbindInjectorService() {
         runCatching {
-            injector?.resetAll()
+            injector?.disconnectVirtualGamepad()
             Shizuku.unbindUserService(userServiceArgs, serviceConnection, true)
         }
         injector = null

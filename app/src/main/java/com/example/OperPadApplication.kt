@@ -58,7 +58,9 @@ class OperPadApplication : Application() {
             initialize()
         }
         xInputEngine.onStateUpdated = { state ->
-            shizukuBridge.pushXInputState(state)
+            if (_overlayState.value.isRunning) {
+                shizukuBridge.pushXInputState(state)
+            }
         }
 
         applicationScope.launch {

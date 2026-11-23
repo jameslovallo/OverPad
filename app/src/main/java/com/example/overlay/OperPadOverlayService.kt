@@ -77,6 +77,7 @@ class OperPadOverlayService : Service() {
         startForegroundCompat()
 
         app.updateOverlayState { it.copy(isRunning = true, isOverlaySettingsOpen = false, isOverlayEditMode = false) }
+        app.shizukuBridge.setOverlayActive(true)
 
         serviceScope.launch {
             app.repository.presetsFlow.collect { list ->
@@ -126,6 +127,7 @@ class OperPadOverlayService : Service() {
         usageMonitorJob?.cancel()
         clearAllOverlayViews()
         app.xInputEngine.resetAll()
+        app.shizukuBridge.setOverlayActive(false)
         app.updateOverlayState {
             it.copy(
                 isRunning = false,

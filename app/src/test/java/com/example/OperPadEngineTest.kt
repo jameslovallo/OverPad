@@ -138,6 +138,14 @@ class OperPadEngineTest {
         assertTrue(rootFallback.modeLabel.contains("Root UID 0"))
         assertTrue(rootFallback.modeLabel.contains("INJECT_EVENTS_ONLY"))
 
+        val standby = shellConnected.copy(
+            virtualDeviceId = -1,
+            backendMode = "STANDBY"
+        )
+        assertFalse(standby.isHardwareSpoofed)
+        assertTrue(standby.modeLabel.contains("Standby"))
+        assertTrue(standby.modeLabel.contains("Overlay Off"))
+
         val hardwareSpoofed = shellConnected.copy(
             virtualDeviceId = 14,
             backendMode = "UHID_XBOX"

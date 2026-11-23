@@ -694,21 +694,31 @@ private fun ShizukuBridgeCard(
                     }
                 }
 
+                val badgeColor = when {
+                    shizukuStatus.stage != ShizukuConnectionStage.CONNECTED -> accentColor
+                    shizukuStatus.isHardwareSpoofed -> TacticalEmerald
+                    shizukuStatus.backendMode == "STANDBY" -> ElectricCyan
+                    else -> TriggerAmber
+                }
                 Surface(
                     shape = RoundedCornerShape(50),
-                    color = accentColor.copy(alpha = 0.16f),
-                    border = BorderStroke(1.dp, accentColor.copy(alpha = 0.45f))
+                    color = badgeColor.copy(alpha = 0.16f),
+                    border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.45f))
                 ) {
                     Text(
                         text = when (shizukuStatus.stage) {
-                            ShizukuConnectionStage.CONNECTED -> "ACTIVE"
+                            ShizukuConnectionStage.CONNECTED -> when {
+                                shizukuStatus.isHardwareSpoofed -> "PAD LIVE"
+                                shizukuStatus.backendMode == "STANDBY" -> "STANDBY"
+                                else -> "ACTIVE"
+                            }
                             ShizukuConnectionStage.CONNECTING -> "BINDING"
                             ShizukuConnectionStage.PERMISSION_REQUIRED -> "AUTH NEEDED"
                             ShizukuConnectionStage.SERVICE_STOPPED -> "STOPPED"
                             ShizukuConnectionStage.NOT_INSTALLED -> "SETUP"
                         },
                         style = MaterialTheme.typography.labelSmall,
-                        color = accentColor,
+                        color = badgeColor,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }
@@ -780,9 +790,12 @@ private fun ShizukuBridgeCard(
                             Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                if (shizukuStatus.isHardwareSpoofed) "Re-verify Pad"
-                                else if (isConnected) "Probe Virtual Pad"
-                                else "Reconnect"
+                                when {
+                                    shizukuStatus.isHardwareSpoofed -> "Re-verify Pad"
+                                    shizukuStatus.backendMode == "STANDBY" -> "Refresh Bridge"
+                                    isConnected -> "Probe Virtual Pad"
+                                    else -> "Reconnect"
+                                }
                             )
                         }
                     }
@@ -801,14 +814,15 @@ private fun ShizukuBridgeCard(
             }
 
             shizukuStatus.diagnostics?.takeIf { it.isNotBlank() }?.let { diag ->
+                val diagColor = when {
+                    shizukuStatus.isHardwareSpoofed -> TacticalEmerald
+                    shizukuStatus.backendMode == "STANDBY" -> ElectricCyan
+                    else -> TriggerAmber
+                }
                 Surface(
                     shape = RoundedCornerShape(10.dp),
                     color = SlateSurfaceElevated,
-                    border = BorderStroke(
-                        1.dp,
-                        if (shizukuStatus.isHardwareSpoofed) TacticalEmerald.copy(alpha = 0.45f)
-                        else TriggerAmber.copy(alpha = 0.45f)
-                    )
+                    border = BorderStroke(1.dp, diagColor.copy(alpha = 0.45f))
                 ) {
                     Text(
                         text = if (shizukuStatus.isHardwareSpoofed) {
@@ -817,7 +831,7 @@ private fun ShizukuBridgeCard(
                             diag
                         },
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (shizukuStatus.isHardwareSpoofed) TacticalEmerald else TriggerAmber,
+                        color = diagColor,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 10.dp, vertical = 8.dp)

@@ -7,6 +7,7 @@ interface IXInputInjector {
     int getVirtualDeviceId();
     String getDiagnostics();
     boolean ensureVirtualGamepad();
+    void disconnectVirtualGamepad();
     void sendGamepadState(
         int buttonsMask,
         float leftTrigger,
