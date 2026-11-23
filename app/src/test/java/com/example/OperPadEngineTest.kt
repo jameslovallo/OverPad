@@ -307,4 +307,71 @@ class OperPadEngineTest {
         assertTrue(settledToZero)
         assertEquals(null, flickFilter.decayIfIdle(500L, sensitivity = 2.5f))
     }
+
+    @Test
+    fun controlDragHelper_snapsAcrossGridStepsAndPrioritizesOverlappingSmallButtons() {
+        // 1. Continuous total-delta dragging crosses grid boundaries cleanly even when stepPx is coarse
+        val startX = 0.20f
+        val startY = 0.50f
+        val widthPx = 1000f
+        val heightPx = 600f
+        val stepPx = 20f
+
+        val smallMove = com.example.ui.gamepad.ControlDragHelper.computeDraggedPlacement(
+            startXFraction = startX,
+            startYFraction = startY,
+            totalDeltaXPx = 35f,
+            totalDeltaYPx = 0f,
+            canvasWidthPx = widthPx,
+            canvasHeightPx = heightPx,
+            stepPx = stepPx,
+            snapToGrid = true
+        )
+        assertEquals(0.24f, smallMove.first, 0.001f)
+        assertEquals(0.50f, smallMove.second, 0.001f)
+
+        val continuedMove = com.example.ui.gamepad.ControlDragHelper.computeDraggedPlacement(
+            startXFraction = startX,
+            startYFraction = startY,
+            totalDeltaXPx = 120f,
+            totalDeltaYPx = -40f,
+            canvasWidthPx = widthPx,
+            canvasHeightPx = heightPx,
+            stepPx = stepPx,
+            snapToGrid = true
+        )
+        assertEquals(0.32f, continuedMove.first, 0.001f)
+        assertEquals(260f / 600f, continuedMove.second, 0.001f)
+
+        // 2. Scaled-down editor hit-testing keeps 48dp minimum target and lets small L3 win over adjacent large LEFT_STICK
+        val preset = DefaultPresets.consoleFull()
+            .let { base ->
+                base.updatePlacement(base.placementFor(ControlType.LEFT_STICK).copy(xFraction = 0.20f, yFraction = 0.60f, visible = true))
+                    .updatePlacement(base.placementFor(ControlType.BUTTON_L3).copy(xFraction = 0.26f, yFraction = 0.60f, visible = true))
+            }
+
+        val hitL3 = com.example.ui.gamepad.ControlDragHelper.findHitControl(
+            touchX = 0.26f * 1000f,
+            touchY = 0.60f * 500f,
+            controls = preset.controls,
+            selectedControl = ControlType.LEFT_STICK,
+            canvasWidthPx = 1000f,
+            canvasHeightPx = 500f,
+            effectiveScaleMultiplier = 0.45f,
+            densityPx = 2.0f
+        )
+        assertEquals(ControlType.BUTTON_L3, hitL3?.type)
+
+        val hitStick = com.example.ui.gamepad.ControlDragHelper.findHitControl(
+            touchX = 0.16f * 1000f,
+            touchY = 0.60f * 500f,
+            controls = preset.controls,
+            selectedControl = ControlType.BUTTON_L3,
+            canvasWidthPx = 1000f,
+            canvasHeightPx = 500f,
+            effectiveScaleMultiplier = 0.45f,
+            densityPx = 2.0f
+        )
+        assertEquals(ControlType.LEFT_STICK, hitStick?.type)
+    }
 }

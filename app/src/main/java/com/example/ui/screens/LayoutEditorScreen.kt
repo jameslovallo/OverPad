@@ -6,7 +6,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -58,12 +59,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -73,10 +76,12 @@ import com.example.model.ControlType
 import com.example.model.ControllerPreset
 import com.example.model.GridSnapper
 import com.example.model.PresetCategory
+import com.example.ui.gamepad.ControlDragHelper
 import com.example.ui.gamepad.GamepadControlIcon
 import com.example.ui.gamepad.GamepadControlNode
 import com.example.ui.gamepad.hasCustomIcon
 import com.example.xinput.TouchMouseLookFilter
+import kotlin.math.hypot
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
@@ -99,6 +104,7 @@ fun LayoutEditorScreen(
     val selectedPlacement = preset.placementFor(selectedControl)
     var showDuplicateDialog by remember { mutableStateOf(false) }
     var duplicateName by remember { mutableStateOf("") }
+    var activeDragPos by remember { mutableStateOf<Pair<ControlType, Pair<Float, Float>>?>(null) }
 
     if (onNavigateBack != null) {
         BackHandler(onBack = onNavigateBack)
@@ -187,6 +193,7 @@ fun LayoutEditorScreen(
 
         LazyColumn(
             modifier = Modifier.weight(1f),
+            userScrollEnabled = activeDragPos == null,
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -212,8 +219,13 @@ fun LayoutEditorScreen(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary
                             )
+                            val displayCoords = if (activeDragPos?.first == selectedControl) {
+                                activeDragPos!!.second
+                            } else {
+                                selectedPlacement.xFraction to selectedPlacement.yFraction
+                            }
                             Text(
-                                text = "${"%.2f".format(selectedPlacement.xFraction)}, ${"%.2f".format(selectedPlacement.yFraction)}",
+                                text = "${"%.2f".format(displayCoords.first)}, ${"%.2f".format(displayCoords.second)}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -221,23 +233,114 @@ fun LayoutEditorScreen(
 
                         Spacer(Modifier.height(8.dp))
 
-                            val density = LocalDensity.current
-                            val gridColor = MaterialTheme.colorScheme.primary
-                            val leftZoneColor = MaterialTheme.colorScheme.tertiary
-                            val zoneColor = MaterialTheme.colorScheme.secondary
-                            BoxWithConstraints(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(16f / 9.5f)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceContainer)
-                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
-                            ) {
-                                val widthPx = with(density) { maxWidth.toPx() }
-                                val heightPx = with(density) { maxHeight.toPx() }
-                                val canvasScale = (maxWidth / 760.dp).coerceIn(0.45f, 0.95f)
-                                val stepPx = with(density) { (preset.gridStepDp * canvasScale).dp.toPx() }.coerceAtLeast(10f)
+                        val density = LocalDensity.current
+                        val gridColor = MaterialTheme.colorScheme.primary
+                        val leftZoneColor = MaterialTheme.colorScheme.tertiary
+                        val zoneColor = MaterialTheme.colorScheme.secondary
+                        BoxWithConstraints(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(16f / 9.5f)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainer)
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
+                        ) {
+                            val widthPx = with(density) { maxWidth.toPx() }
+                            val heightPx = with(density) { maxHeight.toPx() }
+                            val canvasScale = (maxWidth / 760.dp).coerceIn(0.45f, 0.95f)
+                            val stepPx = with(density) { (preset.gridStepDp * canvasScale).dp.toPx() }.coerceAtLeast(10f)
 
+                            val latestPreset by rememberUpdatedState(preset)
+                            val latestSelectedControl by rememberUpdatedState(selectedControl)
+                            val latestWidthPx by rememberUpdatedState(widthPx)
+                            val latestHeightPx by rememberUpdatedState(heightPx)
+                            val latestStepPx by rememberUpdatedState(stepPx)
+                            val latestCanvasScale by rememberUpdatedState(canvasScale)
+                            val latestOnSelectControl by rememberUpdatedState(onSelectControl)
+                            val latestOnUpdatePreset by rememberUpdatedState(onUpdatePreset)
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .pointerInput(Unit) {
+                                        awaitEachGesture {
+                                            val down = awaitFirstDown(requireUnconsumed = true)
+                                            val hit = ControlDragHelper.findHitControl(
+                                                touchX = down.position.x,
+                                                touchY = down.position.y,
+                                                controls = latestPreset.controls,
+                                                selectedControl = latestSelectedControl,
+                                                canvasWidthPx = latestWidthPx,
+                                                canvasHeightPx = latestHeightPx,
+                                                effectiveScaleMultiplier = latestCanvasScale,
+                                                densityPx = density.density
+                                            ) ?: return@awaitEachGesture
+
+                                            down.consume()
+                                            latestOnSelectControl(hit.type)
+
+                                            val startX = hit.xFraction
+                                            val startY = hit.yFraction
+                                            var hasCrossedSlop = false
+                                            var lastCommitted = startX to startY
+                                            activeDragPos = hit.type to lastCommitted
+                                            val touchSlopPx = viewConfiguration.touchSlop
+
+                                            try {
+                                                while (true) {
+                                                    val event = awaitPointerEvent(PointerEventPass.Main)
+                                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                                    if (change == null || !change.pressed) {
+                                                        change?.consume()
+                                                        break
+                                                    }
+                                                    change.consume()
+                                                    val totalDelta = change.position - down.position
+                                                    if (!hasCrossedSlop && hypot(totalDelta.x, totalDelta.y) >= touchSlopPx) {
+                                                        hasCrossedSlop = true
+                                                    }
+                                                    if (hasCrossedSlop) {
+                                                        val snapped = ControlDragHelper.computeDraggedPlacement(
+                                                            startXFraction = startX,
+                                                            startYFraction = startY,
+                                                            totalDeltaXPx = totalDelta.x,
+                                                            totalDeltaYPx = totalDelta.y,
+                                                            canvasWidthPx = latestWidthPx,
+                                                            canvasHeightPx = latestHeightPx,
+                                                            stepPx = latestStepPx,
+                                                            snapToGrid = latestPreset.snapToGrid
+                                                        )
+                                                        activeDragPos = hit.type to snapped
+                                                        if (snapped != lastCommitted) {
+                                                            lastCommitted = snapped
+                                                            latestOnUpdatePreset(
+                                                                latestPreset.updatePlacement(
+                                                                    latestPreset.placementFor(hit.type).copy(
+                                                                        xFraction = snapped.first,
+                                                                        yFraction = snapped.second
+                                                                    )
+                                                                )
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            } finally {
+                                                if (hasCrossedSlop) {
+                                                    val finalPos = activeDragPos?.second ?: lastCommitted
+                                                    latestOnUpdatePreset(
+                                                        latestPreset.updatePlacement(
+                                                            latestPreset.placementFor(hit.type).copy(
+                                                                xFraction = finalPos.first,
+                                                                yFraction = finalPos.second
+                                                            )
+                                                        )
+                                                    )
+                                                }
+                                                activeDragPos = null
+                                            }
+                                        }
+                                    }
+                            ) {
                                 Canvas(modifier = Modifier.fillMaxSize()) {
                                     if (preset.leftMoveZoneEnabled) {
                                         drawRect(
@@ -253,72 +356,69 @@ fun LayoutEditorScreen(
                                             size = Size(size.width / 2f, size.height)
                                         )
                                     }
-                                var x = 0f
-                                while (x <= size.width) {
-                                    drawLine(
-                                        color = gridColor.copy(alpha = if (preset.snapToGrid) 0.16f else 0.06f),
-                                        start = Offset(x, 0f),
-                                        end = Offset(x, size.height),
-                                        strokeWidth = 1.dp.toPx()
-                                    )
-                                    x += stepPx
-                                }
-                                var y = 0f
-                                while (y <= size.height) {
-                                    drawLine(
-                                        color = gridColor.copy(alpha = if (preset.snapToGrid) 0.16f else 0.06f),
-                                        start = Offset(0f, y),
-                                        end = Offset(size.width, y),
-                                        strokeWidth = 1.dp.toPx()
-                                    )
-                                    y += stepPx
-                                }
-                            }
-
-                            preset.controls.forEach { placement ->
-                                if (placement.visible || placement.type == selectedControl) {
-                                    val effectivePlacement = placement.copy(scale = placement.scale * canvasScale)
-                                    val wPx = with(density) { (effectivePlacement.type.baseWidthDp * effectivePlacement.scale).dp.toPx() }
-                                    val hPx = with(density) { (effectivePlacement.type.baseHeightDp * effectivePlacement.scale).dp.toPx() }
-                                    val offsetX = (placement.xFraction * widthPx - wPx / 2f).roundToInt()
-                                    val offsetY = (placement.yFraction * heightPx - hPx / 2f).roundToInt()
-
-                                    Box(
-                                        modifier = Modifier
-                                            .offset { IntOffset(offsetX, offsetY) }
-                                            .pointerInput(placement.type, preset.snapToGrid, preset.gridStepDp, widthPx, heightPx) {
-                                                detectDragGestures(
-                                                    onDragStart = { onSelectControl(placement.type) },
-                                                    onDrag = { change, dragAmount ->
-                                                        change.consume()
-                                                        val latest = preset.placementFor(placement.type)
-                                                        val rawX = latest.xFraction + (dragAmount.x / widthPx)
-                                                        val rawY = latest.yFraction + (dragAmount.y / heightPx)
-                                                        val (snappedX, snappedY) = GridSnapper.snapPosition(
-                                                            rawXFraction = rawX,
-                                                            rawYFraction = rawY,
-                                                            widthPx = widthPx,
-                                                            heightPx = heightPx,
-                                                            stepPx = stepPx,
-                                                            enabled = preset.snapToGrid
-                                                        )
-                                                        onUpdatePreset(
-                                                            preset.updatePlacement(
-                                                                latest.copy(xFraction = snappedX, yFraction = snappedY)
-                                                            )
-                                                        )
-                                                    }
-                                                )
-                                            }
-                                            .clickable { onSelectControl(placement.type) }
-                                    ) {
-                                        GamepadControlNode(
-                                            placement = effectivePlacement,
-                                            preset = preset,
-                                            engine = null,
-                                            interactive = false,
-                                            isSelectedInEditor = selectedControl == placement.type
+                                    var x = 0f
+                                    while (x <= size.width) {
+                                        drawLine(
+                                            color = gridColor.copy(alpha = if (preset.snapToGrid) 0.16f else 0.06f),
+                                            start = Offset(x, 0f),
+                                            end = Offset(x, size.height),
+                                            strokeWidth = 1.dp.toPx()
                                         )
+                                        x += stepPx
+                                    }
+                                    var y = 0f
+                                    while (y <= size.height) {
+                                        drawLine(
+                                            color = gridColor.copy(alpha = if (preset.snapToGrid) 0.16f else 0.06f),
+                                            start = Offset(0f, y),
+                                            end = Offset(size.width, y),
+                                            strokeWidth = 1.dp.toPx()
+                                        )
+                                        y += stepPx
+                                    }
+                                    activeDragPos?.second?.let { (dx, dy) ->
+                                        val cx = dx * size.width
+                                        val cy = dy * size.height
+                                        drawLine(
+                                            color = gridColor.copy(alpha = 0.35f),
+                                            start = Offset(cx, 0f),
+                                            end = Offset(cx, size.height),
+                                            strokeWidth = 1.dp.toPx()
+                                        )
+                                        drawLine(
+                                            color = gridColor.copy(alpha = 0.35f),
+                                            start = Offset(0f, cy),
+                                            end = Offset(size.width, cy),
+                                            strokeWidth = 1.dp.toPx()
+                                        )
+                                    }
+                                }
+
+                                preset.controls.forEach { placement ->
+                                    if (placement.visible || placement.type == selectedControl) {
+                                        val draggedCoords = if (activeDragPos?.first == placement.type) {
+                                            activeDragPos!!.second
+                                        } else null
+                                        val renderX = draggedCoords?.first ?: placement.xFraction
+                                        val renderY = draggedCoords?.second ?: placement.yFraction
+
+                                        val effectivePlacement = placement.copy(scale = placement.scale * canvasScale)
+                                        val wPx = with(density) { (effectivePlacement.type.baseWidthDp * effectivePlacement.scale).dp.toPx() }
+                                        val hPx = with(density) { (effectivePlacement.type.baseHeightDp * effectivePlacement.scale).dp.toPx() }
+                                        val offsetX = (renderX * widthPx - wPx / 2f).roundToInt()
+                                        val offsetY = (renderY * heightPx - hPx / 2f).roundToInt()
+
+                                        Box(
+                                            modifier = Modifier.offset { IntOffset(offsetX, offsetY) }
+                                        ) {
+                                            GamepadControlNode(
+                                                placement = effectivePlacement,
+                                                preset = preset,
+                                                engine = null,
+                                                interactive = false,
+                                                isSelectedInEditor = selectedControl == placement.type
+                                            )
+                                        }
                                     }
                                 }
                             }
