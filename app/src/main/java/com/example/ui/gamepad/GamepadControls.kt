@@ -746,7 +746,7 @@ private fun TriggerDragAimWidget(
         }
         GamepadControlIcon(
             controlType = controlType,
-            tint = if (pressed) Color.White else activeColor,
+            tint = if (pressed) Color.White else TextPrimary,
             size = (34f * scale.coerceIn(0.75f, 1.45f)).dp
         )
     }
