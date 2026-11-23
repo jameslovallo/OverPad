@@ -6,6 +6,7 @@ import com.example.data.OperPadPreferences
 import com.example.data.OperPadRepository
 import com.example.model.ControllerPreset
 import com.example.model.DefaultPresets
+import com.example.overlay.OverlayNotificationHelper
 import com.example.shizuku.ShizukuBridgeManager
 import com.example.usage.ForegroundAppMonitor
 import com.example.xinput.XInputControllerEngine
@@ -76,6 +77,34 @@ class OperPadApplication : Application() {
                 ?: presets.firstOrNull()
                 ?: DefaultPresets.fpsPro()
             updateOverlayState { it.copy(activePreset = initial) }
+            OverlayNotificationHelper.syncStandbyNotification(
+                context = this@OperPadApplication,
+                isOverlayRunning = _overlayState.value.isRunning,
+                presetName = initial.name,
+                quickActionEnabled = settings.notificationQuickActionEnabled
+            )
+            OverlayNotificationHelper.requestTileUpdate(this@OperPadApplication)
+        }
+    }
+
+    fun syncQuickActionNotification() {
+        applicationScope.launch {
+            val settings = repository.userSettingsFlow.first()
+            val runtime = _overlayState.value
+            if (runtime.isRunning) {
+                OverlayNotificationHelper.updateActiveNotificationIfPossible(
+                    context = this@OperPadApplication,
+                    presetName = runtime.activePreset.name
+                )
+            } else {
+                OverlayNotificationHelper.syncStandbyNotification(
+                    context = this@OperPadApplication,
+                    isOverlayRunning = false,
+                    presetName = runtime.activePreset.name,
+                    quickActionEnabled = settings.notificationQuickActionEnabled
+                )
+            }
+            OverlayNotificationHelper.requestTileUpdate(this@OperPadApplication)
         }
     }
 

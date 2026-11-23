@@ -1,9 +1,5 @@
 package com.example.overlay
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -21,10 +17,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
-import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import com.example.MainActivity
 import com.example.OperPadApplication
-import com.example.R
 import com.example.model.ControlPlacement
 import com.example.model.ControlType
 import com.example.model.ControllerPreset
@@ -70,16 +65,16 @@ class OperPadOverlayService : Service() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         lifecycleOwner.onCreate()
 
+        startForegroundCompat(app.overlayState.value.activePreset.name)
+
         if (!Settings.canDrawOverlays(this)) {
             stopSelf()
             return
         }
 
-        createNotificationChannel()
-        startForegroundCompat()
-
         app.updateOverlayState { it.copy(isRunning = true, isOverlaySettingsOpen = false, isOverlayEditMode = false) }
         app.shizukuBridge.setOverlayActive(true)
+        OverlayNotificationHelper.requestTileUpdate(this)
 
         serviceScope.launch {
             app.repository.presetsFlow.collect { list ->
@@ -95,8 +90,17 @@ class OperPadOverlayService : Service() {
         }
 
         serviceScope.launch {
+            var lastPresetName: String? = null
             app.overlayState.collect { state ->
                 syncOverlayWindows(state.activePreset, state.isOverlaySettingsOpen, state.isOverlayEditMode)
+                if (state.isRunning && state.activePreset.name != lastPresetName) {
+                    lastPresetName = state.activePreset.name
+                    OverlayNotificationHelper.updateActiveNotificationIfPossible(
+                        this@OperPadOverlayService,
+                        state.activePreset.name
+                    )
+                    OverlayNotificationHelper.requestTileUpdate(this@OperPadOverlayService)
+                }
             }
         }
 
@@ -108,6 +112,17 @@ class OperPadOverlayService : Service() {
             ACTION_STOP -> {
                 stopSelf()
                 return START_NOT_STICKY
+            }
+            ACTION_START -> {
+                if (!Settings.canDrawOverlays(this)) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                app.shizukuBridge.refreshStatusAndAutoConnect()
+                lastRenderedSignature = null
+                val state = app.overlayState.value
+                syncOverlayWindows(state.activePreset, state.isOverlaySettingsOpen, state.isOverlayEditMode)
+                OverlayNotificationHelper.requestTileUpdate(this)
             }
             ACTION_REFRESH -> {
                 lastRenderedSignature = null
@@ -137,6 +152,11 @@ class OperPadOverlayService : Service() {
                 isOverlayEditMode = false
             )
         }
+        runCatching {
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        }
+        app.syncQuickActionNotification()
+        OverlayNotificationHelper.requestTileUpdate(this)
         lifecycleOwner.onDestroy()
         serviceScope.cancel()
         super.onDestroy()
@@ -477,58 +497,28 @@ class OperPadOverlayService : Service() {
         }
     }
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "OverPad Controller Overlay",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Keeps the OverPad floating XInput controller active on top of games and apps."
-            }
-            val nm = getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(channel)
-        }
-    }
-
-    private fun startForegroundCompat() {
-        val openAppIntent = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        val stopIntent = PendingIntent.getService(
-            this,
-            1,
-            Intent(this, OperPadOverlayService::class.java).apply { action = ACTION_STOP },
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("OverPad Overlay Active")
-            .setContentText("Virtual XInput controller is running on top of apps.")
-            .setContentIntent(openAppIntent)
-            .addAction(0, "Stop", stopIntent)
-            .setOngoing(true)
-            .build()
-
+    private fun startForegroundCompat(presetName: String) {
+        val notification = OverlayNotificationHelper.buildActiveNotification(this, presetName)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            startForeground(
+                OverlayNotificationHelper.NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            )
         } else {
-            startForeground(NOTIFICATION_ID, notification)
+            startForeground(OverlayNotificationHelper.NOTIFICATION_ID, notification)
         }
     }
 
     companion object {
-        private const val CHANNEL_ID = "operpad_overlay_channel"
-        private const val NOTIFICATION_ID = 4107
+        const val ACTION_START = "com.example.operpad.START_OVERLAY"
         const val ACTION_STOP = "com.example.operpad.STOP_OVERLAY"
         const val ACTION_REFRESH = "com.example.operpad.REFRESH_OVERLAY"
 
         fun start(context: Context) {
-            val intent = Intent(context, OperPadOverlayService::class.java)
+            val intent = Intent(context, OperPadOverlayService::class.java).apply {
+                action = ACTION_START
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {

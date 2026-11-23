@@ -246,6 +246,8 @@ fun OperPadAppRoot(viewModel: OperPadViewModel = viewModel()) {
                                 onRefreshApps = viewModel::loadInstalledApps,
                                 onSetHaptics = viewModel::setHapticFeedback,
                                 onSetUdpBridge = viewModel::setUdpBridge,
+                                onSetNotificationQuickAction = viewModel::setNotificationQuickActionEnabled,
+                                onRefreshPermissions = { viewModel.refreshPermissions(context) },
                                 onOpenSandbox = {
                                     navController.navigate(ROUTE_SANDBOX) {
                                         launchSingleTop = true

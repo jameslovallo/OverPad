@@ -17,5 +17,12 @@ class ExampleRobolectricTest {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val appName = context.getString(R.string.app_name)
     assertEquals("OverPad", appName)
+    assertEquals("OverPad", context.getString(R.string.qs_tile_label))
+
+    val standby = com.example.overlay.OverlayNotificationHelper.buildStandbyNotification(context, "FPS Pro")
+    assertEquals("Enable", standby.actions?.firstOrNull()?.title?.toString())
+
+    val active = com.example.overlay.OverlayNotificationHelper.buildActiveNotification(context, "FPS Pro")
+    assertEquals("Disable", active.actions?.firstOrNull()?.title?.toString())
   }
 }

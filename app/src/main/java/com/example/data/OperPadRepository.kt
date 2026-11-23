@@ -94,4 +94,8 @@ class OperPadRepository(
     suspend fun setFpsAntiDeadzone(boost: Float) {
         preferences.setFpsAntiDeadzone(boost)
     }
+
+    suspend fun setNotificationQuickActionEnabled(enabled: Boolean) {
+        preferences.setNotificationQuickActionEnabled(enabled)
+    }
 }

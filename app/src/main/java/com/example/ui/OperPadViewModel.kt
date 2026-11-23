@@ -75,6 +75,7 @@ class OperPadViewModel(application: Application) : AndroidViewModel(application)
         _hasOverlayPermission.value = Settings.canDrawOverlays(context)
         _hasUsagePermission.value = monitor.hasUsageAccessPermission()
         shizukuBridge.refreshStatusAndAutoConnect()
+        app.syncQuickActionNotification()
     }
 
     fun requestShizukuPermission() {
@@ -113,6 +114,7 @@ class OperPadViewModel(application: Application) : AndroidViewModel(application)
         app.updateOverlayState { it.copy(activePreset = preset, autoMatchedByApp = false) }
         viewModelScope.launch {
             repository.setDefaultPresetId(preset.id)
+            app.syncQuickActionNotification()
         }
     }
 
@@ -205,6 +207,13 @@ class OperPadViewModel(application: Application) : AndroidViewModel(application)
     fun setFpsAntiDeadzone(boost: Float) {
         viewModelScope.launch {
             repository.setFpsAntiDeadzone(boost)
+        }
+    }
+
+    fun setNotificationQuickActionEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setNotificationQuickActionEnabled(enabled)
+            app.syncQuickActionNotification()
         }
     }
 

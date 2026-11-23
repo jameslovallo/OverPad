@@ -1,7 +1,10 @@
 package com.example.ui.screens
 
 import android.Manifest
+import android.app.StatusBarManager
+import android.content.ComponentName
 import android.content.Intent
+import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -72,10 +75,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
+import com.example.R
 import com.example.data.OperPadUserSettings
 import com.example.model.AppPresetBinding
 import com.example.model.ControllerPreset
 import com.example.model.InstalledAppInfo
+import com.example.overlay.OverPadTileService
 import com.example.shizuku.ShizukuConnectionStage
 import com.example.shizuku.ShizukuStatus
 import com.example.xinput.DriverCapabilityStatus
@@ -102,6 +107,8 @@ fun SettingsScreen(
     onRefreshApps: () -> Unit,
     onSetHaptics: (Boolean) -> Unit,
     onSetUdpBridge: (Boolean, String, Int) -> Unit,
+    onSetNotificationQuickAction: (Boolean) -> Unit,
+    onRefreshPermissions: () -> Unit,
     onOpenSandbox: () -> Unit
 ) {
     val context = LocalContext.current
@@ -115,8 +122,12 @@ fun SettingsScreen(
     }
     val notificationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { granted -> hasNotificationPermission = granted }
+    ) { granted ->
+        hasNotificationPermission = granted
+        onRefreshPermissions()
+    }
 
+    var tileStatusText by remember { mutableStateOf<String?>(null) }
     var udpHostText by remember(userSettings.udpHost) { mutableStateOf(userSettings.udpHost) }
     var udpPortText by remember(userSettings.udpPort) { mutableStateOf(userSettings.udpPort.toString()) }
 
@@ -510,6 +521,102 @@ fun SettingsScreen(
                                 singleLine = true,
                                 modifier = Modifier.weight(1f)
                             )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. Notification Pane Quick Action & Quick Settings Tile
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 840.dp),
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Notifications,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Notification Pane", style = MaterialTheme.typography.titleMedium)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Quick Action Notification", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                text = "Keep Enable toggle in shade",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = userSettings.notificationQuickActionEnabled,
+                            onCheckedChange = { enabled ->
+                                onSetNotificationQuickAction(enabled)
+                                if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotificationPermission) {
+                                    notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            },
+                            modifier = Modifier.testTag("notification_quick_action_switch")
+                        )
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Quick Settings Tile", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                text = tileStatusText ?: if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    "Toggle from Quick Settings"
+                                } else {
+                                    "Add from Quick Settings edit"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            OutlinedButton(
+                                onClick = {
+                                    val sbm = context.getSystemService(StatusBarManager::class.java)
+                                    sbm?.requestAddTileService(
+                                        ComponentName(context, OverPadTileService::class.java),
+                                        context.getString(R.string.qs_tile_label),
+                                        Icon.createWithResource(context, R.drawable.ic_qs_gamepad),
+                                        context.mainExecutor
+                                    ) { result ->
+                                        tileStatusText = when (result) {
+                                            StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED -> "Tile added"
+                                            StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED -> "Already added"
+                                            StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_NOT_ADDED -> "Not added"
+                                            else -> "Ready"
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.testTag("add_qs_tile_button")
+                            ) {
+                                Text("Add Tile", style = MaterialTheme.typography.labelMedium)
+                            }
                         }
                     }
                 }

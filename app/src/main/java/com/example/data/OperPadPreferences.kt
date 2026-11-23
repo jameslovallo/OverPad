@@ -24,7 +24,8 @@ data class OperPadUserSettings(
     val udpHost: String = "127.0.0.1",
     val udpPort: Int = 26760,
     val hasCompletedOnboarding: Boolean = false,
-    val fpsAntiDeadzone: Float = TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE
+    val fpsAntiDeadzone: Float = TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE,
+    val notificationQuickActionEnabled: Boolean = true
 )
 
 class OperPadPreferences(private val context: Context) {
@@ -37,6 +38,7 @@ class OperPadPreferences(private val context: Context) {
         val UDP_PORT = intPreferencesKey("udp_port")
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         val FPS_ANTI_DEADZONE = floatPreferencesKey("fps_anti_deadzone")
+        val NOTIFICATION_QUICK_ACTION = booleanPreferencesKey("notification_quick_action")
     }
 
     val settingsFlow: Flow<OperPadUserSettings> = context.operPadDataStore.data.map { prefs ->
@@ -49,7 +51,8 @@ class OperPadPreferences(private val context: Context) {
             udpPort = prefs[Keys.UDP_PORT] ?: 26760,
             hasCompletedOnboarding = prefs[Keys.ONBOARDING_COMPLETED] ?: false,
             fpsAntiDeadzone = (prefs[Keys.FPS_ANTI_DEADZONE] ?: TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE)
-                .coerceIn(TouchMouseLookFilter.MIN_ANTI_DEADZONE, TouchMouseLookFilter.MAX_ANTI_DEADZONE)
+                .coerceIn(TouchMouseLookFilter.MIN_ANTI_DEADZONE, TouchMouseLookFilter.MAX_ANTI_DEADZONE),
+            notificationQuickActionEnabled = prefs[Keys.NOTIFICATION_QUICK_ACTION] ?: true
         )
     }
 
@@ -84,5 +87,9 @@ class OperPadPreferences(private val context: Context) {
                 TouchMouseLookFilter.MAX_ANTI_DEADZONE
             )
         }
+    }
+
+    suspend fun setNotificationQuickActionEnabled(enabled: Boolean) {
+        context.operPadDataStore.edit { it[Keys.NOTIFICATION_QUICK_ACTION] = enabled }
     }
 }
