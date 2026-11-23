@@ -16,22 +16,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Gamepad
-import androidx.compose.material.icons.filled.GridOn
-import androidx.compose.material.icons.outlined.Apps
-import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Gamepad
-import androidx.compose.material.icons.outlined.GridOn
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
-import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,16 +50,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.ui.OperPadViewModel
-import com.example.ui.screens.AppProfilesScreen
-import com.example.ui.screens.HubScreen
+import com.example.ui.screens.ControlsScreen
 import com.example.ui.screens.LayoutEditorScreen
 import com.example.ui.screens.SandboxScreen
+import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.ShizukuOnboardingWizard
-import com.example.ui.theme.ElectricCyan
-import com.example.ui.theme.ObsidianBg
 import com.example.ui.theme.OperPadTheme
-import com.example.ui.theme.SlateSurface
-import com.example.ui.theme.TextSecondary
 
 enum class OperPadRoute(
     val route: String,
@@ -74,18 +64,19 @@ enum class OperPadRoute(
     val unselectedIcon: ImageVector,
     val testTag: String
 ) {
-    HUB("hub", "Hub", Icons.Filled.Dashboard, Icons.Outlined.Dashboard, "nav_hub"),
-    EDITOR("editor", "Studio", Icons.Filled.GridOn, Icons.Outlined.GridOn, "nav_studio"),
-    APPS("apps", "Apps", Icons.Filled.Apps, Icons.Outlined.Apps, "nav_apps"),
-    SANDBOX("sandbox", "Sandbox", Icons.Filled.Gamepad, Icons.Outlined.Gamepad, "nav_sandbox")
+    CONTROLS("controls", "Controls", Icons.Filled.Gamepad, Icons.Outlined.Gamepad, "nav_controls"),
+    SETTINGS("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings, "nav_settings")
 }
+
+private const val ROUTE_EDITOR = "editor"
+private const val ROUTE_SANDBOX = "sandbox"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            OperPadTheme(darkTheme = true) {
+            OperPadTheme {
                 OperPadAppRoot()
             }
         }
@@ -98,7 +89,9 @@ fun OperPadAppRoot(viewModel: OperPadViewModel = viewModel()) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = backStackEntry?.destination?.route ?: OperPadRoute.HUB.route
+    val currentRoute = backStackEntry?.destination?.route ?: OperPadRoute.CONTROLS.route
+    val showTopLevelNav = currentRoute == OperPadRoute.CONTROLS.route ||
+        currentRoute == OperPadRoute.SETTINGS.route
 
     val presets by viewModel.presets.collectAsStateWithLifecycle()
     val bindings by viewModel.bindings.collectAsStateWithLifecycle()
@@ -140,7 +133,7 @@ fun OperPadAppRoot(viewModel: OperPadViewModel = viewModel()) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    fun navigateTo(route: String) {
+    fun navigateToTab(route: String) {
         navController.navigate(route) {
             popUpTo(navController.graph.findStartDestination().id) {
                 saveState = true
@@ -154,149 +147,145 @@ fun OperPadAppRoot(viewModel: OperPadViewModel = viewModel()) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val useNavigationRail = maxWidth >= 600.dp
 
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            containerColor = ObsidianBg,
-            contentWindowInsets = WindowInsets.safeDrawing,
-            bottomBar = {
-                if (!useNavigationRail) {
-                    NavigationBar(containerColor = SlateSurface) {
-                        OperPadRoute.entries.forEach { dest ->
-                            val selected = currentRoute == dest.route
-                            NavigationBarItem(
-                                selected = selected,
-                                onClick = { navigateTo(dest.route) },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (selected) dest.selectedIcon else dest.unselectedIcon,
-                                        contentDescription = dest.label
-                                    )
-                                },
-                                label = { Text(dest.label, style = MaterialTheme.typography.labelSmall) },
-                                modifier = Modifier.testTag(dest.testTag),
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = ElectricCyan,
-                                    selectedTextColor = ElectricCyan,
-                                    unselectedIconColor = TextSecondary,
-                                    unselectedTextColor = TextSecondary,
-                                    indicatorColor = ElectricCyan.copy(alpha = 0.16f)
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                containerColor = MaterialTheme.colorScheme.background,
+                contentWindowInsets = WindowInsets.safeDrawing,
+                bottomBar = {
+                    if (showTopLevelNav && !useNavigationRail) {
+                        NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                            OperPadRoute.entries.forEach { dest ->
+                                val selected = currentRoute == dest.route
+                                NavigationBarItem(
+                                    selected = selected,
+                                    onClick = { navigateToTab(dest.route) },
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (selected) dest.selectedIcon else dest.unselectedIcon,
+                                            contentDescription = dest.label
+                                        )
+                                    },
+                                    label = { Text(dest.label, style = MaterialTheme.typography.labelSmall) },
+                                    modifier = Modifier.testTag(dest.testTag)
                                 )
-                            )
+                            }
                         }
                     }
                 }
-            }
-        ) { innerPadding ->
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-            ) {
-                if (useNavigationRail) {
-                    NavigationRail(containerColor = SlateSurface) {
-                        OperPadRoute.entries.forEach { dest ->
-                            val selected = currentRoute == dest.route
-                            NavigationRailItem(
-                                selected = selected,
-                                onClick = { navigateTo(dest.route) },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (selected) dest.selectedIcon else dest.unselectedIcon,
-                                        contentDescription = dest.label
-                                    )
-                                },
-                                label = { Text(dest.label, style = MaterialTheme.typography.labelSmall) },
-                                modifier = Modifier.testTag(dest.testTag),
-                                colors = NavigationRailItemDefaults.colors(
-                                    selectedIconColor = ElectricCyan,
-                                    selectedTextColor = ElectricCyan,
-                                    unselectedIconColor = TextSecondary,
-                                    unselectedTextColor = TextSecondary,
-                                    indicatorColor = ElectricCyan.copy(alpha = 0.16f)
-                                )
-                            )
-                        }
-                    }
-                }
-
-                NavHost(
-                    navController = navController,
-                    startDestination = OperPadRoute.HUB.route,
-                    modifier = Modifier.weight(1f)
+            ) { innerPadding ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
                 ) {
-                    composable(OperPadRoute.HUB.route) {
-                        HubScreen(
-                            overlayState = overlayState,
-                            presets = presets,
-                            userSettings = userSettings,
-                            hasOverlayPermission = hasOverlayPermission,
-                            hasUsagePermission = hasUsagePermission,
-                            shizukuStatus = shizukuStatus,
-                            driverCapability = viewModel.driverCapability,
-                            onStartOverlay = { viewModel.startOverlay(context) },
-                            onStopOverlay = { viewModel.stopOverlay(context) },
-                            onSelectPreset = viewModel::selectActivePreset,
-                            onEditPreset = { preset ->
-                                viewModel.selectPresetForEditing(preset.id)
-                                navigateTo(OperPadRoute.EDITOR.route)
-                            },
-                            onOpenSandbox = { navigateTo(OperPadRoute.SANDBOX.route) },
-                            onOpenOnboarding = { showOnboardingManually = true },
-                            onRequestShizukuPermission = viewModel::requestShizukuPermission,
-                            onReconnectShizuku = viewModel::reconnectShizuku,
-                            onOpenShizukuApp = { viewModel.openShizukuApp(context) },
-                            onDownloadShizuku = { viewModel.openShizukuDownload(context) },
-                            onSetHaptics = viewModel::setHapticFeedback,
-                            onSetUdpBridge = viewModel::setUdpBridge
-                        )
+                    if (showTopLevelNav && useNavigationRail) {
+                        NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                            OperPadRoute.entries.forEach { dest ->
+                                val selected = currentRoute == dest.route
+                                NavigationRailItem(
+                                    selected = selected,
+                                    onClick = { navigateToTab(dest.route) },
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (selected) dest.selectedIcon else dest.unselectedIcon,
+                                            contentDescription = dest.label
+                                        )
+                                    },
+                                    label = { Text(dest.label, style = MaterialTheme.typography.labelSmall) },
+                                    modifier = Modifier.testTag(dest.testTag)
+                                )
+                            }
+                        }
                     }
 
-                    composable(OperPadRoute.EDITOR.route) {
-                        LayoutEditorScreen(
-                            presets = presets,
-                            editingPresetId = editingPresetId,
-                            selectedControl = selectedControl,
-                            antiDeadzone = userSettings.fpsAntiDeadzone,
-                            onUpdateAntiDeadzone = viewModel::setFpsAntiDeadzone,
-                            onSelectPresetToEdit = viewModel::selectPresetForEditing,
-                            onSelectControl = viewModel::selectControl,
-                            onUpdatePreset = viewModel::updatePreset,
-                            onDuplicatePreset = viewModel::duplicatePreset,
-                            onResetBuiltInPreset = viewModel::resetBuiltInPreset,
-                            onDeleteCustomPreset = viewModel::deleteCustomPreset
-                        )
-                    }
+                    NavHost(
+                        navController = navController,
+                        startDestination = OperPadRoute.CONTROLS.route,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        composable(OperPadRoute.CONTROLS.route) {
+                            ControlsScreen(
+                                overlayState = overlayState,
+                                presets = presets,
+                                shizukuStatus = shizukuStatus,
+                                hasOverlayPermission = hasOverlayPermission,
+                                onStartOverlay = { viewModel.startOverlay(context) },
+                                onStopOverlay = { viewModel.stopOverlay(context) },
+                                onSelectPreset = viewModel::selectActivePreset,
+                                onCreatePreset = { basePreset, name ->
+                                    viewModel.createAndSelectPreset(basePreset, name)
+                                },
+                                onEditCurrentPreset = { preset ->
+                                    viewModel.selectPresetForEditing(preset.id)
+                                    navController.navigate(ROUTE_EDITOR) {
+                                        launchSingleTop = true
+                                    }
+                                }
+                            )
+                        }
 
-                    composable(OperPadRoute.APPS.route) {
-                        AppProfilesScreen(
-                            installedApps = installedApps,
-                            isLoadingApps = isLoadingApps,
-                            presets = presets,
-                            bindings = bindings,
-                            autoSwitchEnabled = userSettings.autoSwitchByAppUsage,
-                            hasUsagePermission = hasUsagePermission,
-                            overlayState = overlayState,
-                            onToggleAutoSwitch = viewModel::setAutoSwitchByAppUsage,
-                            onBindApp = viewModel::bindAppToPreset,
-                            onUnbindApp = viewModel::unbindApp,
-                            onRefreshApps = viewModel::loadInstalledApps
-                        )
-                    }
+                        composable(OperPadRoute.SETTINGS.route) {
+                            SettingsScreen(
+                                presets = presets,
+                                bindings = bindings,
+                                installedApps = installedApps,
+                                isLoadingApps = isLoadingApps,
+                                userSettings = userSettings,
+                                hasOverlayPermission = hasOverlayPermission,
+                                hasUsagePermission = hasUsagePermission,
+                                shizukuStatus = shizukuStatus,
+                                driverCapability = viewModel.driverCapability,
+                                onOpenOnboarding = { showOnboardingManually = true },
+                                onRequestShizukuPermission = viewModel::requestShizukuPermission,
+                                onReconnectShizuku = viewModel::reconnectShizuku,
+                                onOpenShizukuApp = { viewModel.openShizukuApp(context) },
+                                onDownloadShizuku = { viewModel.openShizukuDownload(context) },
+                                onToggleAutoSwitch = viewModel::setAutoSwitchByAppUsage,
+                                onBindApp = viewModel::bindAppToPreset,
+                                onUnbindApp = viewModel::unbindApp,
+                                onRefreshApps = viewModel::loadInstalledApps,
+                                onSetHaptics = viewModel::setHapticFeedback,
+                                onSetUdpBridge = viewModel::setUdpBridge,
+                                onOpenSandbox = {
+                                    navController.navigate(ROUTE_SANDBOX) {
+                                        launchSingleTop = true
+                                    }
+                                }
+                            )
+                        }
 
-                    composable(OperPadRoute.SANDBOX.route) {
-                        SandboxScreen(
-                            presets = presets,
-                            activePreset = overlayState.activePreset,
-                            xInputState = xInputState,
-                            xInputEngine = viewModel.xInputEngine,
-                            hapticsEnabled = userSettings.hapticFeedbackEnabled,
-                            antiDeadzone = userSettings.fpsAntiDeadzone,
-                            onSelectPreset = viewModel::selectActivePreset
-                        )
+                        composable(ROUTE_EDITOR) {
+                            LayoutEditorScreen(
+                                presets = presets,
+                                editingPresetId = editingPresetId,
+                                selectedControl = selectedControl,
+                                antiDeadzone = userSettings.fpsAntiDeadzone,
+                                onUpdateAntiDeadzone = viewModel::setFpsAntiDeadzone,
+                                onSelectPresetToEdit = viewModel::selectPresetForEditing,
+                                onSelectControl = viewModel::selectControl,
+                                onUpdatePreset = viewModel::updatePreset,
+                                onDuplicatePreset = viewModel::duplicatePreset,
+                                onResetBuiltInPreset = viewModel::resetBuiltInPreset,
+                                onDeleteCustomPreset = viewModel::deleteCustomPreset,
+                                onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable(ROUTE_SANDBOX) {
+                            SandboxScreen(
+                                presets = presets,
+                                activePreset = overlayState.activePreset,
+                                xInputState = xInputState,
+                                xInputEngine = viewModel.xInputEngine,
+                                hapticsEnabled = userSettings.hapticFeedbackEnabled,
+                                antiDeadzone = userSettings.fpsAntiDeadzone,
+                                onSelectPreset = viewModel::selectActivePreset,
+                                onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
                     }
                 }
             }
-        }
         }
 
         AnimatedVisibility(

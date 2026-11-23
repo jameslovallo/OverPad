@@ -232,18 +232,23 @@ class OperPadEngineTest {
     }
 
     @Test
-    fun fpsMouseLookFilter_isRefreshRateIndependentWithDeadzoneBoostAndSmoothDecay() {
+    fun fpsMouseLookFilter_isRefreshRateIndependentWith2xTo4xSensitivityAndNoMidSwipeThrottle() {
         val fps = DefaultPresets.fpsPro()
-        assertEquals(com.example.model.TriggerDragMode.SWIPE_VELOCITY, fps.triggerDragMode)
+        val console = DefaultPresets.consoleFull()
+        assertTrue(fps.triggerDragAimEnabled)
+        assertTrue(console.triggerDragAimEnabled)
+        assertTrue(fps.fpsLookSensitivity in 2.0f..4.0f)
+        assertTrue(console.fpsLookSensitivity in 2.0f..4.0f)
 
         // 1. Sub-jitter micro wobble stays exact zero
         val jitterFilter = com.example.xinput.TouchMouseLookFilter()
         jitterFilter.onPointerDown(1000L)
-        val (jx, jy) = jitterFilter.onPointerMove(0.10f, -0.10f, 1016L, sensitivity = 1.45f)
+        val (jx, jy) = jitterFilter.onPointerMove(0.02f, -0.02f, 1016L, sensitivity = 2.5f)
         assertEquals(0f, jx, 0.0001f)
         assertEquals(0f, jy, 0.0001f)
 
-        // 2. Same physical thumb speed at 60Hz (16ms steps) vs 120Hz (8ms steps) reaches matching deflection
+        // 2. Same physical thumb speed at 60Hz (16ms steps) vs 120Hz (8ms steps) reaches matching deflection,
+        // and interleaved 12ms decayIfIdle checks during a 60Hz swipe must not slow it down
         val filter60 = com.example.xinput.TouchMouseLookFilter()
         val filter120 = com.example.xinput.TouchMouseLookFilter()
         filter60.onPointerDown(0L)
@@ -251,36 +256,48 @@ class OperPadEngineTest {
 
         var out60 = 0f to 0f
         for (frame in 1..6) {
-            out60 = filter60.onPointerMove(3.2f, 0f, frame * 16L, sensitivity = 1.45f, antiDeadzone = 0.14f)
+            val t = frame * 16L
+            assertEquals(null, filter60.decayIfIdle(t - 2L, sensitivity = 2.5f, antiDeadzone = 0.14f))
+            out60 = filter60.onPointerMove(1.4f, 0f, t, sensitivity = 2.5f, antiDeadzone = 0.14f)
         }
         var out120 = 0f to 0f
         for (frame in 1..12) {
-            out120 = filter120.onPointerMove(1.6f, 0f, frame * 8L, sensitivity = 1.45f, antiDeadzone = 0.14f)
+            out120 = filter120.onPointerMove(0.7f, 0f, frame * 8L, sensitivity = 2.5f, antiDeadzone = 0.14f)
         }
         assertEquals(out60.first, out120.first, 0.04f)
         assertEquals(0f, out60.second, 0.001f)
 
-        // 3. Slow precision drag still clears 14% console anti-deadzone cleanly
-        assertTrue(out60.first > 0.25f)
-        assertTrue(out60.first < 0.85f)
+        // 3. Sensitivity clamps to [2.0x, 4.0x]
+        val belowMin = com.example.xinput.TouchMouseLookFilter().apply { onPointerDown(0L) }
+            .onPointerMove(1.4f, 0f, 16L, sensitivity = 0.5f, antiDeadzone = 0.14f)
+        val atMin = com.example.xinput.TouchMouseLookFilter().apply { onPointerDown(0L) }
+            .onPointerMove(1.4f, 0f, 16L, sensitivity = 2.0f, antiDeadzone = 0.14f)
+        assertEquals(atMin.first, belowMin.first, 0.001f)
+
+        val aboveMax = com.example.xinput.TouchMouseLookFilter().apply { onPointerDown(0L) }
+            .onPointerMove(1.4f, 0f, 16L, sensitivity = 6.0f, antiDeadzone = 0.14f)
+        val atMax = com.example.xinput.TouchMouseLookFilter().apply { onPointerDown(0L) }
+            .onPointerMove(1.4f, 0f, 16L, sensitivity = 4.0f, antiDeadzone = 0.14f)
+        assertEquals(atMax.first, aboveMax.first, 0.001f)
+        assertTrue(atMax.first > atMin.first)
 
         // 4. Fast flick saturates smoothly to max deflection in diagonal direction
         val flickFilter = com.example.xinput.TouchMouseLookFilter()
         flickFilter.onPointerDown(0L)
-        val (fx, fy) = flickFilter.onPointerMove(18f, -18f, 12L, sensitivity = 1.45f, antiDeadzone = 0.14f)
+        val (fx, fy) = flickFilter.onPointerMove(18f, -18f, 12L, sensitivity = 2.5f, antiDeadzone = 0.14f)
         assertTrue(fx > 0.65f)
         assertTrue(fy < -0.65f)
 
-        // 5. Idle decay glides velocity back to exact zero smoothly and then stops emitting
+        // 5. Idle decay glides velocity back to exact zero smoothly after idle threshold (~34ms) and then stops emitting
         var settledToZero = false
-        for (step in 1..15) {
-            val decayed = flickFilter.decayIfIdle(12L + step * 14L, sensitivity = 1.45f, antiDeadzone = 0.14f)
+        for (step in 1..20) {
+            val decayed = flickFilter.decayIfIdle(12L + 36L + step * 12L, sensitivity = 2.5f, antiDeadzone = 0.14f)
             if (decayed != null && decayed.first == 0f && decayed.second == 0f) {
                 settledToZero = true
                 break
             }
         }
         assertTrue(settledToZero)
-        assertEquals(null, flickFilter.decayIfIdle(500L, sensitivity = 1.45f))
+        assertEquals(null, flickFilter.decayIfIdle(500L, sensitivity = 2.5f))
     }
 }

@@ -25,10 +25,8 @@ object DefaultPresets {
         gridStepDp = 24,
         snapToGrid = true,
         fpsRightZoneEnabled = true,
-        fpsLookSensitivity = 1.45f,
+        fpsLookSensitivity = 2.60f,
         triggerDragAimEnabled = true,
-        triggerDragMode = TriggerDragMode.SWIPE_VELOCITY,
-        triggerDragRadiusDp = 56f,
         invertRightY = false,
         controls = listOf(
             ControlPlacement(ControlType.LEFT_STICK, 0.14f, 0.68f, scale = 1.15f, visible = true),
@@ -60,8 +58,8 @@ object DefaultPresets {
         gridStepDp = 24,
         snapToGrid = true,
         fpsRightZoneEnabled = false,
-        fpsLookSensitivity = 1.25f,
-        triggerDragAimEnabled = false,
+        fpsLookSensitivity = 2.25f,
+        triggerDragAimEnabled = true,
         controls = listOf(
             ControlPlacement(ControlType.LEFT_STICK, 0.13f, 0.48f, scale = 1.05f, visible = true),
             ControlPlacement(ControlType.DPAD, 0.26f, 0.76f, scale = 0.95f, visible = true),
@@ -92,7 +90,7 @@ object DefaultPresets {
         gridStepDp = 24,
         snapToGrid = true,
         fpsRightZoneEnabled = false,
-        fpsLookSensitivity = 1.35f,
+        fpsLookSensitivity = 2.40f,
         triggerDragAimEnabled = true,
         controls = listOf(
             ControlPlacement(ControlType.LEFT_STICK, 0.14f, 0.64f, scale = 1.20f, visible = true),
@@ -123,8 +121,8 @@ object DefaultPresets {
         opacity = 0.85f,
         gridStepDp = 24,
         snapToGrid = true,
-        fpsRightZoneEnabled = false,
-        triggerDragAimEnabled = false,
+        fpsLookSensitivity = 2.40f,
+        triggerDragAimEnabled = true,
         controls = listOf(
             ControlPlacement(ControlType.LEFT_STICK, 0.15f, 0.45f, scale = 1.0f, visible = false),
             ControlPlacement(ControlType.RIGHT_STICK, 0.80f, 0.45f, scale = 1.0f, visible = false),

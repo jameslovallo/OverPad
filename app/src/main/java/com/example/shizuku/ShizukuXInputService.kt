@@ -167,17 +167,13 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
     }
 
     private fun tryStartUinputXbox360Locked(): Boolean {
-        val uinputCmd = if (File("/system/bin/uinput").exists()) {
-            listOf("/system/bin/uinput", "-")
-        } else {
-            listOf(
-                "sh",
-                "-c",
-                "CLASSPATH=/system/framework/uinput.jar exec app_process /system/bin com.android.commands.uinput.Uinput -"
-            )
-        }
+        val pb = buildBridgeProcessBuilder(
+            jarPath = "/system/framework/uinput.jar",
+            mainClass = "com.android.commands.uinput.Uinput",
+            fallbackBin = "/system/bin/uinput"
+        )
         return startBridgeAndVerifyLocked(
-            command = uinputCmd,
+            processBuilder = pb,
             mode = BackendMode.UINPUT_XBOX360,
             registerJson = VirtualXboxHidProtocol.buildUinputRegisterJson(1),
             delayJson = VirtualXboxHidProtocol.buildUhidDelayJson(1, 100),
@@ -202,17 +198,13 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
     }
 
     private fun tryStartUhidXboxLocked(): Boolean {
-        val hidCmd = if (File("/system/bin/hid").exists()) {
-            listOf("/system/bin/hid", "-")
-        } else {
-            listOf(
-                "sh",
-                "-c",
-                "CLASSPATH=/system/framework/hid.jar exec app_process /system/bin com.android.commands.hid.Hid -"
-            )
-        }
+        val pb = buildBridgeProcessBuilder(
+            jarPath = "/system/framework/hid.jar",
+            mainClass = "com.android.commands.hid.Hid",
+            fallbackBin = "/system/bin/hid"
+        )
         return startBridgeAndVerifyLocked(
-            command = hidCmd,
+            processBuilder = pb,
             mode = BackendMode.UHID_XBOX,
             registerJson = VirtualXboxHidProtocol.buildUhidRegisterJson(1),
             delayJson = VirtualXboxHidProtocol.buildUhidDelayJson(1, 100),
@@ -226,8 +218,27 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
         )
     }
 
+    private fun buildBridgeProcessBuilder(
+        jarPath: String,
+        mainClass: String,
+        fallbackBin: String
+    ): ProcessBuilder {
+        val jarExists = File(jarPath).exists()
+        val appProcess = listOf("/system/bin/app_process", "/system/bin/app_process64", "/system/bin/app_process32")
+            .firstOrNull { File(it).exists() }
+        return if (jarExists && appProcess != null) {
+            // Invoke app_process directly without /system/bin/sh wrapper so Process.destroyForcibly()
+            // kills the exact process holding /dev/uinput or /dev/uhid.
+            ProcessBuilder(listOf(appProcess, "/system/bin", mainClass, "-")).apply {
+                environment()["CLASSPATH"] = jarPath
+            }
+        } else {
+            ProcessBuilder(listOf("sh", "-c", "exec $fallbackBin -"))
+        }
+    }
+
     private fun startBridgeAndVerifyLocked(
-        command: List<String>,
+        processBuilder: ProcessBuilder,
         mode: BackendMode,
         registerJson: String,
         delayJson: String,
@@ -237,7 +248,7 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
         lastProcessError = null
         val beforeIds = InputDevice.getDeviceIds().toSet()
         val proc = runCatching {
-            ProcessBuilder(command)
+            processBuilder
                 .redirectErrorStream(true)
                 .start()
         }.getOrElse { err ->
@@ -698,17 +709,50 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
         val proc = bridgeProcess
         bridgeProcess = null
         if (proc != null) {
-            runCatching { proc.destroy() }
-            val exited = runCatching { proc.waitFor(250L, TimeUnit.MILLISECONDS) }.getOrDefault(false)
-            if (!exited && proc.isAlive) {
+            runCatching { proc.outputStream.close() }
+            val graceful = runCatching { proc.waitFor(50L, TimeUnit.MILLISECONDS) }.getOrDefault(false)
+            if (!graceful || proc.isAlive) {
                 runCatching { proc.destroyForcibly() }
-                runCatching { proc.waitFor(150L, TimeUnit.MILLISECONDS) }
+                runCatching { proc.waitFor(180L, TimeUnit.MILLISECONDS) }
             }
         }
-        if (previousDeviceId > 0) {
+
+        fun hasLingeringVirtualGamepad(): Boolean {
+            if (previousDeviceId > 0 && InputDevice.getDevice(previousDeviceId) != null) return true
+            return findMatchingGamepadDeviceId(
+                preferredVendor = VirtualXboxHidProtocol.MICROSOFT_VID,
+                preferredProducts = setOf(
+                    VirtualXboxHidProtocol.XBOX_360_USB_PID,
+                    VirtualXboxHidProtocol.XBOX_UHID_PID
+                ),
+                excludedIds = emptySet()
+            ) > 0
+        }
+
+        if (hasLingeringVirtualGamepad()) {
+            var cleared = false
             for (i in 0 until 8) {
-                if (InputDevice.getDevice(previousDeviceId) == null) break
-                runCatching { Thread.sleep(40L) }
+                if (!hasLingeringVirtualGamepad()) {
+                    cleared = true
+                    break
+                }
+                runCatching { Thread.sleep(35L) }
+            }
+            if (!cleared) {
+                // Safety backstop: kill any orphaned Android uinput/hid bridge holding the device fd
+                runCatching {
+                    val killer = ProcessBuilder(
+                        "pkill",
+                        "-9",
+                        "-f",
+                        "com\\.android\\.commands\\.(uinput\\.Uinput|hid\\.Hid)"
+                    ).start()
+                    killer.waitFor(400L, TimeUnit.MILLISECONDS)
+                }
+                for (i in 0 until 10) {
+                    if (!hasLingeringVirtualGamepad()) break
+                    runCatching { Thread.sleep(40L) }
+                }
             }
         }
     }

@@ -140,6 +140,15 @@ class OperPadViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun createAndSelectPreset(source: ControllerPreset, newName: String) {
+        viewModelScope.launch {
+            val created = repository.createCustomPresetFrom(source, newName)
+            _editingPresetId.value = created.id
+            app.updateOverlayState { it.copy(activePreset = created, autoMatchedByApp = false) }
+            repository.setDefaultPresetId(created.id)
+        }
+    }
+
     fun resetBuiltInPreset(presetId: String) {
         viewModelScope.launch {
             val reset = repository.resetBuiltInPreset(presetId) ?: return@launch
@@ -207,6 +216,7 @@ class OperPadViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun stopOverlay(context: Context) {
+        shizukuBridge.setOverlayActive(false)
         OperPadOverlayService.stop(context)
     }
 }

@@ -1,5 +1,6 @@
 package com.example.model
 
+import com.example.xinput.TouchMouseLookFilter
 import com.squareup.moshi.JsonClass
 import kotlin.math.roundToInt
 
@@ -9,11 +10,6 @@ enum class PresetCategory(val label: String) {
     ACTION("Action / Arena"),
     RETRO("Retro 2D"),
     CUSTOM("Custom")
-}
-
-enum class TriggerDragMode(val label: String) {
-    STICK_DISPLACEMENT("Stick Displacement"),
-    SWIPE_VELOCITY("Swipe Look")
 }
 
 @JsonClass(generateAdapter = true)
@@ -36,10 +32,8 @@ data class ControllerPreset(
     val gridStepDp: Int = 24,
     val snapToGrid: Boolean = true,
     val fpsRightZoneEnabled: Boolean = false,
-    val fpsLookSensitivity: Float = 1.35f,
-    val triggerDragAimEnabled: Boolean = false,
-    val triggerDragMode: TriggerDragMode = TriggerDragMode.STICK_DISPLACEMENT,
-    val triggerDragRadiusDp: Float = 56f,
+    val fpsLookSensitivity: Float = TouchMouseLookFilter.DEFAULT_SENSITIVITY,
+    val triggerDragAimEnabled: Boolean = true,
     val invertRightY: Boolean = false,
     val controls: List<ControlPlacement>
 ) {

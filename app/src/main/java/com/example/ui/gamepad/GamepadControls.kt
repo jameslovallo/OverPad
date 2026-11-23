@@ -6,14 +6,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -53,7 +51,6 @@ import com.example.model.ControlPlacement
 import com.example.model.ControlType
 import com.example.model.ControllerPreset
 import com.example.model.PresetCategory
-import com.example.model.TriggerDragMode
 import com.example.ui.theme.ChakraPetchFontFamily
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.ObsidianBg
@@ -148,6 +145,7 @@ fun GamepadControlNode(
             ControlType.TRIGGER_LT, ControlType.TRIGGER_RT -> {
                 TriggerDragAimWidget(
                     controlType = type,
+                    scale = placement.scale,
                     preset = preset,
                     interactive = interactive,
                     antiDeadzone = antiDeadzone,
@@ -203,7 +201,7 @@ private fun ThumbstickWidget(
     interactive: Boolean,
     invertY: Boolean,
     mouseLookMode: Boolean = false,
-    sensitivity: Float = 1.45f,
+    sensitivity: Float = TouchMouseLookFilter.DEFAULT_SENSITIVITY,
     antiDeadzone: Float = TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE,
     onDeflect: (Float, Float) -> Unit,
     onTouchDown: () -> Unit
@@ -583,6 +581,7 @@ private fun DPadWidget(
 @Composable
 private fun TriggerDragAimWidget(
     controlType: ControlType,
+    scale: Float,
     preset: ControllerPreset,
     interactive: Boolean,
     antiDeadzone: Float = TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE,
@@ -596,7 +595,6 @@ private fun TriggerDragAimWidget(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val swipeFilter = remember { TouchMouseLookFilter() }
-    val dragRadiusPx = with(density) { preset.triggerDragRadiusDp.coerceAtLeast(32f).dp.toPx() }
     val isRt = controlType == ControlType.TRIGGER_RT
     val activeColor = if (isRt) XboxRed else TriggerAmber
 
@@ -612,11 +610,13 @@ private fun TriggerDragAimWidget(
     }
 
     val touchMod = if (interactive) {
-        Modifier.pointerInput(controlType, preset.triggerDragAimEnabled, preset.triggerDragMode) {
+        Modifier.pointerInput(controlType, preset.triggerDragAimEnabled) {
             awaitPointerEventScope {
                 var activePointerId: PointerId? = null
-                var anchor = Offset.Zero
+                var downPos = Offset.Zero
+                var downUptimeMs = 0L
                 var prevPos = Offset.Zero
+                var hasStartedDrag = false
                 var decayJob: Job? = null
 
                 while (true) {
@@ -625,43 +625,22 @@ private fun TriggerDragAimWidget(
                         val down = event.changes.firstOrNull { it.pressed }
                         if (down != null) {
                             activePointerId = down.id
-                            anchor = down.position
+                            downPos = down.position
+                            downUptimeMs = down.uptimeMillis
                             prevPos = down.position
+                            hasStartedDrag = false
                             pressed = true
                             dragVecX = 0f
                             dragVecY = 0f
                             onTouchDown()
                             currentOnUpdate(true, 0f, 0f)
-
-                            if (preset.triggerDragAimEnabled && preset.triggerDragMode == TriggerDragMode.SWIPE_VELOCITY) {
-                                swipeFilter.onPointerDown(down.uptimeMillis)
-                                decayJob?.cancel()
-                                decayJob = scope.launch {
-                                    while (isActive && activePointerId != null) {
-                                        delay(12L)
-                                        val decayed = swipeFilter.decayIfIdle(
-                                            nowUptimeMs = SystemClock.uptimeMillis(),
-                                            sensitivity = currentSensitivity,
-                                            antiDeadzone = currentAntiDeadzone
-                                        )
-                                        if (decayed != null) {
-                                            dragVecX = decayed.first
-                                            dragVecY = decayed.second
-                                            currentOnUpdate(
-                                                true,
-                                                decayed.first,
-                                                if (currentInvertY) -decayed.second else decayed.second
-                                            )
-                                        }
-                                    }
-                                }
-                            }
                             down.consume()
                         }
                     } else {
                         val change = event.changes.firstOrNull { it.id == activePointerId }
                         if (change == null || !change.pressed) {
                             activePointerId = null
+                            hasStartedDrag = false
                             decayJob?.cancel()
                             decayJob = null
                             swipeFilter.reset()
@@ -672,15 +651,45 @@ private fun TriggerDragAimWidget(
                             change?.consume()
                         } else {
                             if (preset.triggerDragAimEnabled) {
-                                if (preset.triggerDragMode == TriggerDragMode.STICK_DISPLACEMENT) {
-                                    val delta = change.position - anchor
-                                    val dist = hypot(delta.x, delta.y)
-                                    val clamped = if (dist > dragRadiusPx) delta * (dragRadiusPx / dist) else delta
-                                    val rawX = (clamped.x / dragRadiusPx).coerceIn(-1f, 1f)
-                                    val rawY = (clamped.y / dragRadiusPx).coerceIn(-1f, 1f)
-                                    dragVecX = rawX
-                                    dragVecY = rawY
-                                    currentOnUpdate(true, rawX, if (currentInvertY) -rawY else rawY)
+                                if (!hasStartedDrag) {
+                                    val fromDown = change.position - downPos
+                                    val fromDownDp = hypot(fromDown.x, fromDown.y) / density.density
+                                    if (fromDownDp > TRIGGER_DRAG_SQUISH_GUARD_DP) {
+                                        hasStartedDrag = true
+                                        prevPos = change.position
+                                        swipeFilter.onPointerDown(downUptimeMs)
+                                        val (rx, ryRaw) = swipeFilter.onPointerMove(
+                                            dxDp = fromDown.x / density.density,
+                                            dyDp = fromDown.y / density.density,
+                                            uptimeMs = change.uptimeMillis,
+                                            sensitivity = currentSensitivity,
+                                            antiDeadzone = currentAntiDeadzone
+                                        )
+                                        dragVecX = rx
+                                        dragVecY = ryRaw
+                                        currentOnUpdate(true, rx, if (currentInvertY) -ryRaw else ryRaw)
+
+                                        decayJob?.cancel()
+                                        decayJob = scope.launch {
+                                            while (isActive && activePointerId != null) {
+                                                delay(12L)
+                                                val decayed = swipeFilter.decayIfIdle(
+                                                    nowUptimeMs = SystemClock.uptimeMillis(),
+                                                    sensitivity = currentSensitivity,
+                                                    antiDeadzone = currentAntiDeadzone
+                                                )
+                                                if (decayed != null) {
+                                                    dragVecX = decayed.first
+                                                    dragVecY = decayed.second
+                                                    currentOnUpdate(
+                                                        true,
+                                                        decayed.first,
+                                                        if (currentInvertY) -decayed.second else decayed.second
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 } else {
                                     val step = change.position - prevPos
                                     prevPos = change.position
@@ -735,23 +744,11 @@ private fun TriggerDragAimWidget(
                 drawCircle(color = ElectricCyan, radius = 4.dp.toPx(), center = end)
             }
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = controlType.shortLabel,
-                fontFamily = ChakraPetchFontFamily,
-                fontWeight = FontWeight.Bold,
-                fontSize = (15f * presetScaleText(controlType)).sp,
-                color = if (pressed) Color.White else TextPrimary
-            )
-            if (preset.triggerDragAimEnabled) {
-                Icon(
-                    imageVector = Icons.Default.GpsFixed,
-                    contentDescription = "Drag to aim enabled",
-                    tint = if (pressed) ElectricCyan else ElectricCyan.copy(alpha = 0.75f),
-                    modifier = Modifier.size(12.dp)
-                )
-            }
-        }
+        GamepadControlIcon(
+            controlType = controlType,
+            tint = if (pressed) Color.White else activeColor,
+            size = (34f * scale.coerceIn(0.75f, 1.45f)).dp
+        )
     }
 }
 
@@ -868,6 +865,7 @@ private fun CapsuleGamepadButton(
     } else Modifier
 
     val shape = RoundedCornerShape(50)
+    val contentTint = if (pressed) Color.White else TextPrimary
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -884,13 +882,27 @@ private fun CapsuleGamepadButton(
             .then(touchMod),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = controlType.shortLabel,
-            fontFamily = ChakraPetchFontFamily,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = (12f * scale.coerceIn(0.75f, 1.35f)).sp,
-            color = if (pressed) Color.White else TextPrimary
-        )
+        val clampedScale = scale.coerceIn(0.75f, 1.35f)
+        if (controlType.hasCustomIcon()) {
+            val iconSize = when (controlType) {
+                ControlType.BUTTON_LB, ControlType.BUTTON_RB -> (32f * clampedScale).dp
+                ControlType.BUTTON_L3, ControlType.BUTTON_R3 -> (28f * clampedScale).dp
+                else -> (22f * clampedScale).dp
+            }
+            GamepadControlIcon(
+                controlType = controlType,
+                tint = contentTint,
+                size = iconSize
+            )
+        } else {
+            Text(
+                text = controlType.shortLabel,
+                fontFamily = ChakraPetchFontFamily,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = (12f * clampedScale).sp,
+                color = contentTint
+            )
+        }
     }
 }
 
@@ -953,10 +965,7 @@ private fun SettingsOverlayButton(
     }
 }
 
-private fun presetScaleText(type: ControlType): Float = when (type) {
-    ControlType.TRIGGER_LT, ControlType.TRIGGER_RT -> 1.0f
-    else -> 1.0f
-}
+private const val TRIGGER_DRAG_SQUISH_GUARD_DP = 1.5f
 
 /**
  * Right-side screen FPS mouse-like touch-look surface.

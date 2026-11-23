@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -20,19 +21,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,7 +49,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -53,23 +58,13 @@ import com.example.model.ControlType
 import com.example.model.ControllerPreset
 import com.example.ui.gamepad.FpsRightLookZoneSurface
 import com.example.ui.gamepad.GamepadControlNode
-import com.example.ui.theme.CrimsonAlert
-import com.example.ui.theme.ElectricCyan
-import com.example.ui.theme.HairlineBorder
-import com.example.ui.theme.ObsidianBg
-import com.example.ui.theme.SlateSurface
-import com.example.ui.theme.SlateSurfaceElevated
-import com.example.ui.theme.TacticalEmerald
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
-import com.example.ui.theme.TriggerAmber
 import com.example.xinput.TouchMouseLookFilter
 import com.example.xinput.XInputControllerEngine
 import com.example.xinput.XInputState
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun SandboxScreen(
     presets: List<ControllerPreset>,
@@ -78,11 +73,15 @@ fun SandboxScreen(
     xInputEngine: XInputControllerEngine,
     hapticsEnabled: Boolean,
     antiDeadzone: Float = TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE,
-    onSelectPreset: (ControllerPreset) -> Unit
+    onSelectPreset: (ControllerPreset) -> Unit,
+    onNavigateBack: (() -> Unit)? = null
 ) {
-    // Simulated camera yaw/pitch reticle driven directly by Right Stick (including FPS drag + Trigger Hold+Drag!)
     var reticleX by remember { mutableFloatStateOf(0.5f) }
     var reticleY by remember { mutableFloatStateOf(0.5f) }
+
+    if (onNavigateBack != null) {
+        BackHandler(onBack = onNavigateBack)
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -95,135 +94,128 @@ fun SandboxScreen(
         }
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // Preset Selector Strip
-        item {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 920.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = SlateSurface),
-                border = BorderStroke(1.dp, HairlineBorder)
-            ) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (onNavigateBack != null) {
+            TopAppBar(
+                title = { Text("Test Pad", style = MaterialTheme.typography.titleLarge) },
+                navigationIcon = {
+                    IconButton(
+                        onClick = onNavigateBack,
+                        modifier = Modifier.testTag("sandbox_back_button")
                     ) {
-                        Text("XINPUT SANDBOX & FPS TEST BENCH", style = MaterialTheme.typography.titleMedium, color = ElectricCyan)
-                        TextButton(
-                            onClick = {
-                                reticleX = 0.5f
-                                reticleY = 0.5f
-                                xInputEngine.resetAll()
-                            },
-                            modifier = Modifier.testTag("reset_reticle_button")
-                        ) {
-                            Text("Center Aim")
-                        }
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                },
+                actions = {
+                    TextButton(
+                        onClick = {
+                            reticleX = 0.5f
+                            reticleY = 0.5f
+                            xInputEngine.resetAll()
+                        },
+                        modifier = Modifier.testTag("reset_reticle_button")
                     ) {
-                        presets.forEach { item ->
-                            FilterChip(
-                                selected = item.id == activePreset.id,
-                                onClick = { onSelectPreset(item) },
-                                label = { Text(item.name) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = ElectricCyan.copy(alpha = 0.2f),
-                                    selectedLabelColor = ElectricCyan
-                                )
-                            )
-                        }
+                        Text("Center")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            )
+        }
+
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Preset Selector Strip
+            item {
+                FlowRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 920.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    presets.forEach { item ->
+                        FilterChip(
+                            selected = item.id == activePreset.id,
+                            onClick = { onSelectPreset(item) },
+                            label = { Text(item.name) }
+                        )
                     }
                 }
             }
-        }
 
-        // Interactive Test Pad + Live Reticle Canvas
-        item {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 920.dp),
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = ObsidianBg),
-                border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f))
-            ) {
-                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = if (activePreset.fpsRightZoneEnabled && activePreset.triggerDragAimEnabled) {
-                            "Try: Drag right side to aim • Hold RT/LT and drag in any direction to fire + aim simultaneously!"
-                        } else {
-                            "Multi-touch test arena: test thumbsticks, D-Pad, triggers, and buttons simultaneously."
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary
-                    )
-
+            // Interactive Test Pad + Live Reticle Canvas
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 920.dp),
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
+                ) {
                     val density = LocalDensity.current
+                    val crosshairColor = MaterialTheme.colorScheme.outlineVariant
+                    val stickOrbColor = MaterialTheme.colorScheme.secondary
+                    val aimDefaultColor = MaterialTheme.colorScheme.primary
+                    val aimAdsColor = MaterialTheme.colorScheme.tertiary
+                    val aimFireColor = MaterialTheme.colorScheme.error
+
                     BoxWithConstraints(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .padding(10.dp)
                             .aspectRatio(16f / 9.5f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFF060A12))
-                            .border(1.dp, HairlineBorder, RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
                     ) {
                         val widthPx = with(density) { maxWidth.toPx() }
                         val heightPx = with(density) { maxHeight.toPx() }
                         val canvasScale = (maxWidth / 760.dp).coerceIn(0.45f, 0.95f)
 
-                        // Background Reticle & Movement Target Field
                         Canvas(modifier = Modifier.fillMaxSize()) {
-                            // Subtle tactical horizon crosshair
                             drawLine(
-                                color = Color(0xFF1E293B),
+                                color = crosshairColor,
                                 start = Offset(size.width / 2f, 0f),
                                 end = Offset(size.width / 2f, size.height),
                                 strokeWidth = 1.dp.toPx()
                             )
                             drawLine(
-                                color = Color(0xFF1E293B),
+                                color = crosshairColor,
                                 start = Offset(0f, size.height / 2f),
                                 end = Offset(size.width, size.height / 2f),
                                 strokeWidth = 1.dp.toPx()
                             )
 
-                            // Left Stick Position Orb
                             val lsCenter = Offset(
                                 x = size.width * 0.5f + xInputState.thumbLX * (size.width * 0.18f),
                                 y = size.height * 0.5f + xInputState.thumbLY * (size.height * 0.18f)
                             )
                             drawCircle(
-                                color = TacticalEmerald.copy(alpha = 0.30f),
+                                color = stickOrbColor.copy(alpha = 0.28f),
                                 radius = 16.dp.toPx(),
                                 center = lsCenter
                             )
                             drawCircle(
-                                color = TacticalEmerald,
+                                color = stickOrbColor,
                                 radius = 6.dp.toPx(),
                                 center = lsCenter
                             )
 
-                            // Right Stick Driven Aim Reticle
                             val aimPos = Offset(reticleX * size.width, reticleY * size.height)
                             val adsActive = xInputState.leftTrigger > 0.2f
                             val fireActive = xInputState.rightTrigger > 0.2f
                             val reticleRadius = if (adsActive) 15.dp.toPx() else 24.dp.toPx()
                             val reticleColor = when {
-                                fireActive -> CrimsonAlert
-                                adsActive -> TriggerAmber
-                                else -> ElectricCyan
+                                fireActive -> aimFireColor
+                                adsActive -> aimAdsColor
+                                else -> aimDefaultColor
                             }
                             drawCircle(
                                 color = reticleColor,
@@ -245,14 +237,13 @@ fun SandboxScreen(
                             )
                             if (fireActive) {
                                 drawCircle(
-                                    color = CrimsonAlert.copy(alpha = 0.28f),
+                                    color = aimFireColor.copy(alpha = 0.28f),
                                     radius = reticleRadius * 1.45f,
                                     center = aimPos
                                 )
                             }
                         }
 
-                        // Right-Side FPS Look Zone behind controls
                         FpsRightLookZoneSurface(
                             preset = activePreset,
                             engine = xInputEngine,
@@ -264,7 +255,6 @@ fun SandboxScreen(
                                 .align(Alignment.CenterEnd)
                         )
 
-                        // Interactive Controls (excluding SETTINGS or keeping SETTINGS harmless)
                         activePreset.controls.filter { it.visible && it.type != ControlType.SETTINGS }.forEach { placement ->
                             val scaled = placement.copy(scale = placement.scale * canvasScale)
                             val wPx = with(density) { (scaled.type.baseWidthDp * scaled.scale).dp.toPx() }
@@ -286,114 +276,111 @@ fun SandboxScreen(
                     }
                 }
             }
-        }
 
-        // Live XInput 1.4 Telemetry Inspector
-        item {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 920.dp),
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = SlateSurface),
-                border = BorderStroke(1.dp, HairlineBorder)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+            // Live XInput Report Telemetry
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 920.dp),
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text("LIVE XINPUT REPORT TELEMETRY", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            text = "PKT #${xInputState.packetCounter}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = ElectricCyan
-                        )
-                    }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("XInput Telemetry", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                text = "#${xInputState.packetCounter}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
 
-                    // 20-byte XInput Report Hex
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = ObsidianBg,
-                        border = BorderStroke(1.dp, HairlineBorder)
-                    ) {
-                        Text(
-                            text = xInputState.toHexReportSummary(),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = TacticalEmerald,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp)
-                        )
-                    }
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Text(
+                                text = xInputState.toHexReportSummary(),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                            )
+                        }
 
-                    // Active Sources & KeyCodes
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        if (xInputState.activeSources.isEmpty() && xInputState.activeKeyCodes.isEmpty()) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = SlateSurfaceElevated
-                            ) {
-                                Text(
-                                    text = "IDLE (0x0000)",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = TextSecondary,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        } else {
-                            xInputState.activeSources.forEach { src ->
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            if (xInputState.activeSources.isEmpty() && xInputState.activeKeyCodes.isEmpty()) {
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = ElectricCyan.copy(alpha = 0.2f),
-                                    border = BorderStroke(1.dp, ElectricCyan)
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh
                                 ) {
                                     Text(
-                                        text = src,
+                                        text = "IDLE",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = ElectricCyan,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                     )
                                 }
-                            }
-                            xInputState.activeKeyCodes.forEach { code ->
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = TriggerAmber.copy(alpha = 0.2f),
-                                    border = BorderStroke(1.dp, TriggerAmber)
-                                ) {
-                                    Text(
-                                        text = XInputState.keyCodeDisplay(code),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = TriggerAmber,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
+                            } else {
+                                xInputState.activeSources.forEach { src ->
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                                    ) {
+                                        Text(
+                                            text = src,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                                xInputState.activeKeyCodes.forEach { code ->
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary)
+                                    ) {
+                                        Text(
+                                            text = XInputState.keyCodeDisplay(code),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    // Axes Readouts
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            AxisMeterRow("LX", xInputState.thumbLX, "${xInputState.shortLX}")
-                            AxisMeterRow("LY", xInputState.thumbLY, "${xInputState.shortLY}")
-                            AxisMeterRow("LT", xInputState.leftTrigger, "${xInputState.leftTriggerByte}/255", isTrigger = true)
-                        }
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            AxisMeterRow("RX", xInputState.thumbRX, "${xInputState.shortRX}")
-                            AxisMeterRow("RY", xInputState.thumbRY, "${xInputState.shortRY}")
-                            AxisMeterRow("RT", xInputState.rightTrigger, "${xInputState.rightTriggerByte}/255", isTrigger = true)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                AxisMeterRow("LX", xInputState.thumbLX, "${xInputState.shortLX}")
+                                AxisMeterRow("LY", xInputState.thumbLY, "${xInputState.shortLY}")
+                                AxisMeterRow("LT", xInputState.leftTrigger, "${xInputState.leftTriggerByte}/255", isTrigger = true)
+                            }
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                AxisMeterRow("RX", xInputState.thumbRX, "${xInputState.shortRX}")
+                                AxisMeterRow("RY", xInputState.thumbRY, "${xInputState.shortRY}")
+                                AxisMeterRow("RT", xInputState.rightTrigger, "${xInputState.rightTriggerByte}/255", isTrigger = true)
+                            }
                         }
                     }
                 }
@@ -415,8 +402,8 @@ private fun AxisMeterRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(label, style = MaterialTheme.typography.labelSmall, color = TextPrimary)
-            Text(rawDisplay, style = MaterialTheme.typography.labelSmall, color = ElectricCyan)
+            Text(label, style = MaterialTheme.typography.labelSmall)
+            Text(rawDisplay, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         }
         Spacer(Modifier.height(2.dp))
         LinearProgressIndicator(
@@ -425,8 +412,12 @@ private fun AxisMeterRow(
                 .fillMaxWidth()
                 .height(6.dp)
                 .clip(RoundedCornerShape(3.dp)),
-            color = if (isTrigger && value > 0.1f) CrimsonAlert else ElectricCyan,
-            trackColor = SlateSurfaceElevated
+            color = if (isTrigger && value > 0.1f) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.primary
+            },
+            trackColor = MaterialTheme.colorScheme.surfaceContainerHigh
         )
     }
 }

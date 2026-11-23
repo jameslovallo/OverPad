@@ -6,7 +6,7 @@ import androidx.room.TypeConverter
 import com.example.model.ControlPlacement
 import com.example.model.ControllerPreset
 import com.example.model.PresetCategory
-import com.example.model.TriggerDragMode
+import com.example.xinput.TouchMouseLookFilter
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 
@@ -61,8 +61,6 @@ object PresetJsonMapper {
 fun PresetEntity.toDomain(): ControllerPreset {
     val parsedCategory = runCatching { PresetCategory.valueOf(category) }
         .getOrDefault(PresetCategory.CUSTOM)
-    val parsedTriggerMode = runCatching { TriggerDragMode.valueOf(triggerDragMode) }
-        .getOrDefault(TriggerDragMode.STICK_DISPLACEMENT)
     return ControllerPreset(
         id = id,
         name = name,
@@ -73,10 +71,11 @@ fun PresetEntity.toDomain(): ControllerPreset {
         gridStepDp = gridStepDp,
         snapToGrid = snapToGrid,
         fpsRightZoneEnabled = fpsRightZoneEnabled,
-        fpsLookSensitivity = fpsLookSensitivity,
+        fpsLookSensitivity = fpsLookSensitivity.coerceIn(
+            TouchMouseLookFilter.MIN_SENSITIVITY,
+            TouchMouseLookFilter.MAX_SENSITIVITY
+        ),
         triggerDragAimEnabled = triggerDragAimEnabled,
-        triggerDragMode = parsedTriggerMode,
-        triggerDragRadiusDp = triggerDragRadiusDp,
         invertRightY = invertRightY,
         controls = PresetJsonMapper.fromJson(controlsJson)
     )
@@ -92,10 +91,13 @@ fun ControllerPreset.toEntity(): PresetEntity = PresetEntity(
     gridStepDp = gridStepDp,
     snapToGrid = snapToGrid,
     fpsRightZoneEnabled = fpsRightZoneEnabled,
-    fpsLookSensitivity = fpsLookSensitivity,
+    fpsLookSensitivity = fpsLookSensitivity.coerceIn(
+        TouchMouseLookFilter.MIN_SENSITIVITY,
+        TouchMouseLookFilter.MAX_SENSITIVITY
+    ),
     triggerDragAimEnabled = triggerDragAimEnabled,
-    triggerDragMode = triggerDragMode.name,
-    triggerDragRadiusDp = triggerDragRadiusDp,
+    triggerDragMode = "SWIPE_LOOK",
+    triggerDragRadiusDp = 56f,
     invertRightY = invertRightY,
     controlsJson = PresetJsonMapper.toJson(controls),
     updatedAt = System.currentTimeMillis()

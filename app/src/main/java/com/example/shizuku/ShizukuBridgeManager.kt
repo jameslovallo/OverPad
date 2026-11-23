@@ -291,8 +291,10 @@ class ShizukuBridgeManager(private val context: Context) {
     }
 
     fun pushXInputState(state: XInputState) {
+        if (!overlayActive) return
         val remote = injector ?: return
         binderScope.launch {
+            if (!overlayActive) return@launch
             runCatching {
                 remote.sendGamepadState(
                     state.buttonsMask,

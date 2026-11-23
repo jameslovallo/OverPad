@@ -11,7 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,7 +40,6 @@ import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -48,8 +48,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,22 +56,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.shizuku.ShizukuConnectionStage
 import com.example.shizuku.ShizukuStatus
-import com.example.ui.theme.ElectricCyan
-import com.example.ui.theme.HairlineBorder
-import com.example.ui.theme.ObsidianBg
-import com.example.ui.theme.SlateSurface
-import com.example.ui.theme.SlateSurfaceElevated
-import com.example.ui.theme.TacticalEmerald
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
-import com.example.ui.theme.TriggerAmber
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -108,7 +96,7 @@ fun ShizukuOnboardingWizard(
         modifier = Modifier
             .fillMaxSize()
             .systemBarsPadding(),
-        color = ObsidianBg
+        color = MaterialTheme.colorScheme.background
     ) {
         Box(
             modifier = Modifier.fillMaxSize(),
@@ -121,45 +109,44 @@ fun ShizukuOnboardingWizard(
                     .padding(horizontal = 18.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Header Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "CONTROLLER BRIDGE SETUP",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = ElectricCyan
-                        )
-                        Text(
-                            text = "Connect Shizuku via Wireless Debugging so games receive live gamepad input",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
-                    }
+                    Text(
+                        text = "OverPad Setup",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                     Row {
                         IconButton(
                             onClick = onRefreshStatus,
                             modifier = Modifier.testTag("onboarding_refresh_button")
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Refresh status", tint = ElectricCyan)
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Refresh status",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
                         }
                         IconButton(
                             onClick = onFinish,
                             modifier = Modifier.testTag("onboarding_close_button")
                         ) {
-                            Icon(Icons.Default.Close, contentDescription = "Close setup", tint = TextSecondary)
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Close setup",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
 
-                // Progress Meter
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = SlateSurface,
-                    border = BorderStroke(1.dp, HairlineBorder)
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
                     Column(
                         modifier = Modifier
@@ -172,14 +159,17 @@ fun ShizukuOnboardingWizard(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = if (completedCount == 4) "ALL SYSTEMS READY" else "SETUP PROGRESS",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (completedCount == 4) TacticalEmerald else TextPrimary
+                                text = "Setup",
+                                style = MaterialTheme.typography.labelMedium
                             )
                             Text(
-                                text = "$completedCount / 4 READY",
+                                text = "$completedCount / 4",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = if (completedCount == 4) TacticalEmerald else ElectricCyan
+                                color = if (completedCount == 4) {
+                                    MaterialTheme.colorScheme.secondary
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                }
                             )
                         }
                         LinearProgressIndicator(
@@ -188,160 +178,126 @@ fun ShizukuOnboardingWizard(
                                 .fillMaxWidth()
                                 .height(8.dp)
                                 .clip(RoundedCornerShape(4.dp)),
-                            color = if (completedCount == 4) TacticalEmerald else ElectricCyan,
-                            trackColor = SlateSurfaceElevated
+                            color = if (completedCount == 4) {
+                                MaterialTheme.colorScheme.secondary
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
+                            trackColor = MaterialTheme.colorScheme.surfaceContainerHigh
                         )
                     }
                 }
 
-                // Scrollable Steps
                 Column(
                     modifier = Modifier
                         .weight(1f)
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // STEP 1: Install & Start Shizuku
                     OnboardingStepCard(
                         stepNumber = 1,
-                        title = "Start Shizuku Service",
+                        title = "Shizuku Service",
                         subtitle = when {
-                            shizukuStatus.isBinderAlive -> "Shizuku service is active and reachable."
-                            step1Skipped -> "Skipped — you can still authorize Shizuku below or continue using Overlay/UDP mode."
-                            shizukuStatus.isShizukuInstalled -> "Shizuku is installed. Enable Wireless Debugging in Developer Options, pair in Shizuku, and tap Start."
-                            else -> "Install and start Shizuku to inject XInput controller events into games, or skip if already configured / using UDP."
+                            shizukuStatus.isBinderAlive -> "Running"
+                            step1Skipped -> "Skipped"
+                            shizukuStatus.isShizukuInstalled -> "Start Shizuku via Wireless Debugging"
+                            else -> "Install & start Shizuku"
                         },
                         icon = Icons.Default.Usb,
                         isDone = step1Done,
                         isActive = !step1Satisfied
                     ) {
                         if (!shizukuStatus.isBinderAlive) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (shizukuStatus.isShizukuInstalled && !step1Skipped) {
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = ObsidianBg,
-                                        border = BorderStroke(1.dp, HairlineBorder)
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (!shizukuStatus.isShizukuInstalled) {
+                                    Button(
+                                        onClick = onDownloadShizuku,
+                                        modifier = Modifier.testTag("onboarding_get_shizuku_button")
                                     ) {
-                                        Column(
-                                            modifier = Modifier.padding(10.dp),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Text(
-                                                "Quick Wireless Debugging Steps:",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = ElectricCyan
-                                            )
-                                            Text(
-                                                "1. Open Developer Options and enable Wireless Debugging.\n" +
-                                                    "2. Open Shizuku -> Pairing -> enter the pairing code.\n" +
-                                                    "3. Tap Start in Shizuku, then return to OverPad.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = TextSecondary
-                                            )
-                                        }
+                                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Get Shizuku")
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = onOpenShizuku,
+                                        modifier = Modifier.testTag("onboarding_open_shizuku_button")
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Open Shizuku")
+                                    }
+                                    OutlinedButton(
+                                        onClick = { openDeveloperOptions(context) },
+                                        modifier = Modifier.testTag("onboarding_dev_options_button")
+                                    ) {
+                                        Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Dev Options")
                                     }
                                 }
 
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                OutlinedButton(
+                                    onClick = onRefreshStatus,
+                                    modifier = Modifier.testTag("onboarding_recheck_shizuku_button")
                                 ) {
-                                    if (!shizukuStatus.isShizukuInstalled) {
-                                        Button(
-                                            onClick = onDownloadShizuku,
-                                            modifier = Modifier.testTag("onboarding_get_shizuku_button")
-                                        ) {
-                                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(Modifier.width(6.dp))
-                                            Text("Get Shizuku")
-                                        }
-                                    } else {
-                                        Button(
-                                            onClick = onOpenShizuku,
-                                            modifier = Modifier.testTag("onboarding_open_shizuku_button")
-                                        ) {
-                                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(Modifier.width(6.dp))
-                                            Text("Open Shizuku")
-                                        }
-                                        OutlinedButton(
-                                            onClick = { openDeveloperOptions(context) },
-                                            modifier = Modifier.testTag("onboarding_dev_options_button")
-                                        ) {
-                                            Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(Modifier.width(6.dp))
-                                            Text("Dev Options")
-                                        }
-                                    }
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Re-check")
+                                }
 
-                                    OutlinedButton(
-                                        onClick = onRefreshStatus,
-                                        modifier = Modifier.testTag("onboarding_recheck_shizuku_button")
+                                if (!step1Skipped) {
+                                    TextButton(
+                                        onClick = { step1Skipped = true },
+                                        modifier = Modifier.testTag("onboarding_skip_step1_button")
                                     ) {
-                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text("Re-check")
-                                    }
-
-                                    if (!step1Skipped) {
-                                        TextButton(
-                                            onClick = { step1Skipped = true },
-                                            modifier = Modifier.testTag("onboarding_skip_step1_button")
-                                        ) {
-                                            Text("Skip Step", color = TextSecondary)
-                                        }
+                                        Text("Skip")
                                     }
                                 }
                             }
                         }
                     }
 
-                    // STEP 2: Grant Shizuku Permission & Bind Injector
                     OnboardingStepCard(
                         stepNumber = 2,
-                        title = "Authorize OverPad Bridge",
+                        title = "Authorize Bridge",
                         subtitle = when (shizukuStatus.stage) {
                             ShizukuConnectionStage.CONNECTED -> shizukuStatus.modeLabel
-                            ShizukuConnectionStage.CONNECTING -> "Permission granted — binding privileged XInput injector..."
-                            ShizukuConnectionStage.PERMISSION_REQUIRED -> "Allow OverPad to inject gamepad key & thumbstick events via Shizuku."
-                            else -> "If Shizuku is already running, tap Authorize Bridge below to request access directly."
+                            ShizukuConnectionStage.CONNECTING -> "Connecting..."
+                            ShizukuConnectionStage.PERMISSION_REQUIRED -> "Permission required"
+                            else -> "Grant Shizuku access"
                         },
                         icon = Icons.Default.Security,
                         isDone = step2Done,
                         isActive = step1Satisfied && !step2Done
                     ) {
                         if (!shizukuStatus.isPermissionGranted) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(
-                                    onClick = onRequestShizukuPermission,
-                                    modifier = Modifier.testTag("onboarding_grant_shizuku_button")
-                                ) {
-                                    Text("Authorize OverPad")
-                                }
+                            Button(
+                                onClick = onRequestShizukuPermission,
+                                modifier = Modifier.testTag("onboarding_grant_shizuku_button")
+                            ) {
+                                Text("Authorize")
                             }
                         } else if (!shizukuStatus.isServiceConnected) {
                             OutlinedButton(
                                 onClick = onReconnectBridge,
                                 modifier = Modifier.testTag("onboarding_bind_shizuku_button")
                             ) {
-                                Text("Connect Injector Service")
+                                Text("Connect")
                             }
                         }
                         shizukuStatus.lastError?.let { err ->
-                            Text(err, style = MaterialTheme.typography.labelSmall, color = TriggerAmber)
+                            Text(err, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
                         }
                     }
 
-                    // STEP 3: Display Over Other Apps
                     OnboardingStepCard(
                         stepNumber = 3,
-                        title = "Display Over Other Apps",
-                        subtitle = if (step3Done) {
-                            "Overlay permission granted."
-                        } else {
-                            "Allows OverPad to float thumbsticks, triggers, and FPS touch-look on top of games."
-                        },
+                        title = "Display Over Apps",
+                        subtitle = if (step3Done) "Granted" else "Required for floating controls",
                         icon = Icons.Default.Layers,
                         isDone = step3Done,
                         isActive = step2Done && !step3Done
@@ -358,20 +314,15 @@ fun ShizukuOnboardingWizard(
                                 },
                                 modifier = Modifier.testTag("onboarding_grant_overlay_button")
                             ) {
-                                Text("Enable Overlay")
+                                Text("Grant")
                             }
                         }
                     }
 
-                    // STEP 4: Usage Access (Optional)
                     OnboardingStepCard(
                         stepNumber = 4,
-                        title = "App Usage Auto-Switch (Optional)",
-                        subtitle = if (step4Done) {
-                            "Usage Access enabled — saved presets will auto-load per game."
-                        } else {
-                            "Lets OverPad detect which game is running and switch to its saved layout automatically."
-                        },
+                        title = "Usage Access (Optional)",
+                        subtitle = if (step4Done) "Granted" else "Auto-switch app presets",
                         icon = Icons.Default.QueryStats,
                         isDone = step4Done,
                         isActive = step3Done && !step4Done
@@ -383,13 +334,12 @@ fun ShizukuOnboardingWizard(
                                 },
                                 modifier = Modifier.testTag("onboarding_grant_usage_button")
                             ) {
-                                Text("Enable Usage Access")
+                                Text("Grant")
                             }
                         }
                     }
                 }
 
-                // Bottom Footer Actions
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -399,25 +349,18 @@ fun ShizukuOnboardingWizard(
                         onClick = onFinish,
                         modifier = Modifier.testTag("onboarding_skip_button")
                     ) {
-                        Text(if (requiredReady) "Done" else "Skip for Now", color = TextSecondary)
+                        Text(if (requiredReady) "Done" else "Skip")
                     }
                     Button(
                         onClick = onFinish,
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)
-                            .testTag("onboarding_continue_button"),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (requiredReady) TacticalEmerald else ElectricCyan,
-                            contentColor = ObsidianBg
-                        )
+                            .testTag("onboarding_continue_button")
                     ) {
                         Icon(Icons.Default.RocketLaunch, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = if (requiredReady) "Launch OverPad Ready" else "Continue to Hub",
-                            style = MaterialTheme.typography.labelLarge
-                        )
+                        Text(if (requiredReady) "Finish" else "Continue")
                     }
                 }
             }
@@ -437,16 +380,16 @@ private fun OnboardingStepCard(
 ) {
     val borderColor by animateColorAsState(
         targetValue = when {
-            isDone -> TacticalEmerald.copy(alpha = 0.65f)
-            isActive -> ElectricCyan
-            else -> HairlineBorder
+            isDone -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.65f)
+            isActive -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.outlineVariant
         },
         label = "step_border"
     )
 
     Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = SlateSurface,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(if (isActive) 1.5.dp else 1.dp, borderColor)
     ) {
         Row(
@@ -462,9 +405,9 @@ private fun OnboardingStepCard(
                     .clip(CircleShape)
                     .background(
                         when {
-                            isDone -> TacticalEmerald.copy(alpha = 0.2f)
-                            isActive -> ElectricCyan.copy(alpha = 0.2f)
-                            else -> SlateSurfaceElevated
+                            isDone -> MaterialTheme.colorScheme.secondaryContainer
+                            isActive -> MaterialTheme.colorScheme.primaryContainer
+                            else -> MaterialTheme.colorScheme.surfaceContainerHigh
                         }
                     ),
                 contentAlignment = Alignment.Center
@@ -473,14 +416,18 @@ private fun OnboardingStepCard(
                     Icon(
                         Icons.Default.CheckCircle,
                         contentDescription = "Completed",
-                        tint = TacticalEmerald,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier.size(20.dp)
                     )
                 } else {
                     Text(
                         text = "$stepNumber",
                         style = MaterialTheme.typography.labelLarge,
-                        color = if (isActive) ElectricCyan else TextSecondary
+                        color = if (isActive) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                     )
                 }
             }
@@ -493,13 +440,17 @@ private fun OnboardingStepCard(
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
-                        tint = if (isDone) TacticalEmerald else if (isActive) ElectricCyan else TextSecondary,
+                        tint = when {
+                            isDone -> MaterialTheme.colorScheme.secondary
+                            isActive -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text(title, style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+                    Text(title, style = MaterialTheme.typography.titleSmall)
                 }
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 actionContent()
             }
         }

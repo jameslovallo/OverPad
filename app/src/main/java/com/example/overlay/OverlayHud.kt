@@ -1,8 +1,8 @@
 package com.example.overlay
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -37,14 +36,12 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -55,12 +52,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.example.OverlayRuntimeState
@@ -68,18 +63,11 @@ import com.example.model.ControlType
 import com.example.model.ControllerPreset
 import com.example.model.GridSnapper
 import com.example.model.PresetCategory
-import com.example.xinput.TouchMouseLookFilter
+import com.example.ui.gamepad.GamepadControlIcon
 import com.example.ui.gamepad.GamepadControlNode
-import com.example.ui.theme.CrimsonAlert
-import com.example.ui.theme.ElectricCyan
-import com.example.ui.theme.HairlineBorder
-import com.example.ui.theme.ObsidianBg
+import com.example.ui.gamepad.hasCustomIcon
 import com.example.ui.theme.OperPadTheme
-import com.example.ui.theme.SlateSurface
-import com.example.ui.theme.SlateSurfaceElevated
-import com.example.ui.theme.TacticalEmerald
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.xinput.TouchMouseLookFilter
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -111,18 +99,17 @@ fun OverlaySettingsHud(
                     .widthIn(max = 520.dp)
                     .padding(16.dp)
                     .clickable(enabled = false) {},
-                shape = RoundedCornerShape(20.dp),
-                color = SlateSurface.copy(alpha = 0.96f),
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.96f),
                 tonalElevation = 8.dp,
-                border = androidx.compose.foundation.BorderStroke(1.dp, HairlineBorder)
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
                 Column(
                     modifier = Modifier
                         .padding(18.dp)
                         .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Header
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -130,30 +117,28 @@ fun OverlaySettingsHud(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "OVERPAD QUICK HUD",
+                                text = "OverPad",
                                 style = MaterialTheme.typography.titleLarge,
-                                color = ElectricCyan
+                                color = MaterialTheme.colorScheme.primary
                             )
-                            val fgText = runtimeState.detectedAppLabel?.let {
-                                "Foreground: $it" + if (runtimeState.autoMatchedByApp) " (Auto-Loaded)" else ""
-                            } ?: "No foreground app tracked yet"
-                            Text(
-                                text = fgText,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextSecondary
-                            )
+                            runtimeState.detectedAppLabel?.let { label ->
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                         IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.Close, contentDescription = "Close HUD", tint = TextPrimary)
+                            Icon(Icons.Default.Close, contentDescription = "Close HUD")
                         }
                     }
 
-                    // Bind current foreground app button
                     if (!runtimeState.detectedPackageName.isNullOrBlank()) {
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = SlateSurfaceElevated,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, HairlineBorder)
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
                             Row(
                                 modifier = Modifier
@@ -169,14 +154,13 @@ fun OverlaySettingsHud(
                                     Icon(
                                         Icons.Default.Apps,
                                         contentDescription = null,
-                                        tint = TacticalEmerald,
+                                        tint = MaterialTheme.colorScheme.secondary,
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Text(
-                                        text = "Bind ${runtimeState.detectedAppLabel ?: runtimeState.detectedPackageName} to '${preset.name}'",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = TextPrimary
+                                        text = runtimeState.detectedAppLabel ?: runtimeState.detectedPackageName,
+                                        style = MaterialTheme.typography.bodySmall
                                     )
                                 }
                                 Spacer(Modifier.width(8.dp))
@@ -189,17 +173,16 @@ fun OverlaySettingsHud(
                                         )
                                     }
                                 ) {
-                                    Text("Bind App", style = MaterialTheme.typography.labelMedium)
+                                    Text("Bind", style = MaterialTheme.typography.labelMedium)
                                 }
                             }
                         }
                     }
 
-                    // Preset Switcher
                     Text(
-                        text = "ACTIVE PRESET",
+                        text = "Preset",
                         style = MaterialTheme.typography.labelMedium,
-                        color = TextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -213,28 +196,23 @@ fun OverlaySettingsHud(
                                 label = { Text(item.name) },
                                 leadingIcon = if (selected) {
                                     { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                                } else null,
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = ElectricCyan.copy(alpha = 0.20f),
-                                    selectedLabelColor = ElectricCyan
-                                )
+                                } else null
                             )
                         }
                     }
 
-                    HorizontalDivider(color = HairlineBorder)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-                    // Global Opacity Slider
                     Column {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("All Controls Opacity", style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+                            Text("Opacity", style = MaterialTheme.typography.titleSmall)
                             Text(
                                 text = "${(preset.opacity * 100).roundToInt()}%",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = ElectricCyan
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                         Slider(
@@ -242,28 +220,16 @@ fun OverlaySettingsHud(
                             onValueChange = { raw ->
                                 onUpdatePreset(preset.copy(opacity = GridSnapper.snapOpacity(raw)))
                             },
-                            valueRange = GridSnapper.MIN_OPACITY..GridSnapper.MAX_OPACITY,
-                            colors = SliderDefaults.colors(
-                                thumbColor = ElectricCyan,
-                                activeTrackColor = ElectricCyan
-                            )
+                            valueRange = GridSnapper.MIN_OPACITY..GridSnapper.MAX_OPACITY
                         )
                     }
 
-                    // FPS Mechanics Toggles
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Right-Side Screen Look Drag", style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                "Drag right half of screen to emulate Right Stick",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                        }
+                        Text("Right-Half Screen Look", style = MaterialTheme.typography.titleSmall)
                         Switch(
                             checked = preset.fpsRightZoneEnabled,
                             onCheckedChange = {
@@ -277,14 +243,7 @@ fun OverlaySettingsHud(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Trigger Hold + Drag Aim (LT/RT)", style = MaterialTheme.typography.titleSmall)
-                            Text(
-                                "Hold LT/RT and swipe to steer Right Stick mouse-style",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary
-                            )
-                        }
+                        Text("Trigger Swipe Look (LT / RT)", style = MaterialTheme.typography.titleSmall)
                         Switch(
                             checked = preset.triggerDragAimEnabled,
                             onCheckedChange = {
@@ -294,57 +253,52 @@ fun OverlaySettingsHud(
                     }
 
                     if (preset.fpsRightZoneEnabled || preset.triggerDragAimEnabled || preset.category == PresetCategory.FPS) {
+                        val clampedSensitivity = preset.fpsLookSensitivity.coerceIn(
+                            TouchMouseLookFilter.MIN_SENSITIVITY,
+                            TouchMouseLookFilter.MAX_SENSITIVITY
+                        )
                         Column {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Mouse-Look Sensitivity", style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+                                Text("Look Sensitivity", style = MaterialTheme.typography.titleSmall)
                                 Text(
-                                    text = "${"%.2f".format(preset.fpsLookSensitivity)}x",
+                                    text = "${"%.2f".format(clampedSensitivity)}x",
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = ElectricCyan
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
                             Slider(
-                                value = preset.fpsLookSensitivity,
+                                value = clampedSensitivity,
                                 onValueChange = { onUpdatePreset(preset.copy(fpsLookSensitivity = it)) },
-                                valueRange = 0.5f..3.0f,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = ElectricCyan,
-                                    activeTrackColor = ElectricCyan
-                                )
+                                valueRange = TouchMouseLookFilter.MIN_SENSITIVITY..TouchMouseLookFilter.MAX_SENSITIVITY
                             )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Game Deadzone Boost", style = MaterialTheme.typography.titleSmall, color = TextPrimary)
+                                Text("Deadzone Boost", style = MaterialTheme.typography.titleSmall)
                                 Text(
                                     text = "${(antiDeadzone * 100).roundToInt()}%",
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = ElectricCyan
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
                             Slider(
                                 value = antiDeadzone,
                                 onValueChange = onUpdateAntiDeadzone,
-                                valueRange = TouchMouseLookFilter.MIN_ANTI_DEADZONE..TouchMouseLookFilter.MAX_ANTI_DEADZONE,
-                                colors = SliderDefaults.colors(
-                                    thumbColor = ElectricCyan,
-                                    activeTrackColor = ElectricCyan
-                                )
+                                valueRange = TouchMouseLookFilter.MIN_ANTI_DEADZONE..TouchMouseLookFilter.MAX_ANTI_DEADZONE
                             )
                         }
                     }
 
-                    HorizontalDivider(color = HairlineBorder)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-                    // Show / Hide Individual Controls
                     Text(
-                        text = "SHOW / HIDE INDIVIDUAL CONTROLS",
+                        text = "Controls",
                         style = MaterialTheme.typography.labelMedium,
-                        color = TextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -352,12 +306,27 @@ fun OverlaySettingsHud(
                     ) {
                         ControlType.entries.filter { it.canHide }.forEach { controlType ->
                             val placement = preset.placementFor(controlType)
+                            val chipTint = if (placement.visible) {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
                             FilterChip(
                                 selected = placement.visible,
                                 onClick = {
                                     onUpdatePreset(preset.updatePlacement(placement.copy(visible = !placement.visible)))
                                 },
-                                label = { Text(controlType.shortLabel) },
+                                label = {
+                                    if (controlType.hasCustomIcon()) {
+                                        GamepadControlIcon(
+                                            controlType = controlType,
+                                            tint = chipTint,
+                                            size = 16.dp
+                                        )
+                                    } else {
+                                        Text(controlType.shortLabel)
+                                    }
+                                },
                                 leadingIcon = {
                                     Icon(
                                         imageVector = if (placement.visible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
@@ -369,7 +338,6 @@ fun OverlaySettingsHud(
                         }
                     }
 
-                    // Action Buttons
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -380,7 +348,7 @@ fun OverlaySettingsHud(
                         ) {
                             Icon(Icons.Default.GridOn, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Edit & Resize")
+                            Text("Edit Layout")
                         }
                         OutlinedButton(
                             onClick = onOpenMainApp,
@@ -388,7 +356,7 @@ fun OverlaySettingsHud(
                         ) {
                             Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("Full Studio")
+                            Text("App")
                         }
                     }
 
@@ -396,13 +364,13 @@ fun OverlaySettingsHud(
                         onClick = onStopOverlay,
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = CrimsonAlert.copy(alpha = 0.22f),
-                            contentColor = CrimsonAlert
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer
                         )
                     ) {
                         Icon(Icons.Default.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Stop OverPad Overlay")
+                        Text("Disconnect Overlay")
                     }
                 }
             }
@@ -421,22 +389,22 @@ fun OverlayGridEditorScreen(
         val selectedPlacement = preset.placementFor(selectedType)
         val density = LocalDensity.current
         val stepPx = with(density) { preset.gridStepDp.dp.toPx() }
+        val gridColor = MaterialTheme.colorScheme.primary
 
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .background(ObsidianBg.copy(alpha = 0.62f))
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.62f))
         ) {
             val widthPx = with(density) { maxWidth.toPx() }
             val heightPx = with(density) { maxHeight.toPx() }
 
-            // Grid Lines
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val cell = preset.gridStepDp.dp.toPx().coerceAtLeast(12f)
                 var x = 0f
                 while (x <= size.width) {
                     drawLine(
-                        color = ElectricCyan.copy(alpha = if (preset.snapToGrid) 0.18f else 0.08f),
+                        color = gridColor.copy(alpha = if (preset.snapToGrid) 0.18f else 0.08f),
                         start = Offset(x, 0f),
                         end = Offset(x, size.height),
                         strokeWidth = 1.dp.toPx()
@@ -446,7 +414,7 @@ fun OverlayGridEditorScreen(
                 var y = 0f
                 while (y <= size.height) {
                     drawLine(
-                        color = ElectricCyan.copy(alpha = if (preset.snapToGrid) 0.18f else 0.08f),
+                        color = gridColor.copy(alpha = if (preset.snapToGrid) 0.18f else 0.08f),
                         start = Offset(0f, y),
                         end = Offset(size.width, y),
                         strokeWidth = 1.dp.toPx()
@@ -455,7 +423,6 @@ fun OverlayGridEditorScreen(
                 }
             }
 
-            // Draggable Controls
             preset.controls.forEach { placement ->
                 if (placement.visible || placement.type == selectedType) {
                     val wPx = with(density) { (placement.type.baseWidthDp * placement.scale).dp.toPx() }
@@ -503,15 +470,14 @@ fun OverlayGridEditorScreen(
                 }
             }
 
-            // Top Floating Inspector Bar
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 12.dp, start = 16.dp, end = 16.dp)
                     .widthIn(max = 580.dp),
-                shape = RoundedCornerShape(16.dp),
-                color = SlateSurface.copy(alpha = 0.94f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f))
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -523,12 +489,16 @@ fun OverlayGridEditorScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Tune, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(18.dp))
+                            Icon(
+                                Icons.Default.Tune,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = "${selectedType.displayName}  •  Scale ${(selectedPlacement.scale * 100).roundToInt()}%",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = TextPrimary
+                                text = "${selectedType.displayName} • ${(selectedPlacement.scale * 100).roundToInt()}%",
+                                style = MaterialTheme.typography.labelLarge
                             )
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -554,7 +524,11 @@ fun OverlayGridEditorScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text("Size", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+                        Text(
+                            "Size",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Slider(
                             value = selectedPlacement.scale,
                             onValueChange = { raw ->
@@ -567,7 +541,11 @@ fun OverlayGridEditorScreen(
                             valueRange = GridSnapper.MIN_SCALE..GridSnapper.MAX_SCALE,
                             modifier = Modifier.weight(1f)
                         )
-                        Text("Grid", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+                        Text(
+                            "Grid",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Switch(
                             checked = preset.snapToGrid,
                             onCheckedChange = { onUpdatePreset(preset.copy(snapToGrid = it)) }
