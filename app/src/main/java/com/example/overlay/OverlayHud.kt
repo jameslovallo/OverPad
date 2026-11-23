@@ -26,11 +26,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -72,6 +74,7 @@ import com.example.ui.gamepad.GamepadControlNode
 import com.example.ui.gamepad.hasCustomIcon
 import com.example.ui.theme.OperPadTheme
 import com.example.xinput.TouchMouseLookFilter
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
@@ -416,7 +419,6 @@ fun OverlayGridEditorScreen(
         var activeDragPos by remember { mutableStateOf<Pair<ControlType, Pair<Float, Float>>?>(null) }
         val selectedPlacement = preset.placementFor(selectedType)
         val density = LocalDensity.current
-        val stepPx = with(density) { preset.gridStepDp.dp.toPx() }
         val gridColor = MaterialTheme.colorScheme.primary
 
         BoxWithConstraints(
@@ -426,12 +428,12 @@ fun OverlayGridEditorScreen(
         ) {
             val widthPx = with(density) { maxWidth.toPx() }
             val heightPx = with(density) { maxHeight.toPx() }
+            val gridCols = GridSnapper.computeGridColumns(preset.gridRows, widthPx, heightPx)
 
             val latestPreset by rememberUpdatedState(preset)
             val latestSelectedType by rememberUpdatedState(selectedType)
             val latestWidthPx by rememberUpdatedState(widthPx)
             val latestHeightPx by rememberUpdatedState(heightPx)
-            val latestStepPx by rememberUpdatedState(stepPx)
             val latestOnUpdatePreset by rememberUpdatedState(onUpdatePreset)
 
             Box(
@@ -482,7 +484,7 @@ fun OverlayGridEditorScreen(
                                             totalDeltaYPx = totalDelta.y,
                                             canvasWidthPx = latestWidthPx,
                                             canvasHeightPx = latestHeightPx,
-                                            stepPx = latestStepPx,
+                                            gridRows = latestPreset.gridRows,
                                             snapToGrid = latestPreset.snapToGrid
                                         )
                                         activeDragPos = hit.type to snapped
@@ -517,41 +519,58 @@ fun OverlayGridEditorScreen(
                     }
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    val cell = preset.gridStepDp.dp.toPx().coerceAtLeast(12f)
-                    var x = 0f
-                    while (x <= size.width) {
+                    val cols = GridSnapper.computeGridColumns(preset.gridRows, size.width, size.height)
+                    GridSnapper.gridLineFractions(cols).forEach { xFrac ->
+                        val xPx = xFrac * size.width
+                        val isCenter = abs(xFrac - 0.5f) < 0.0005f
                         drawLine(
-                            color = gridColor.copy(alpha = if (preset.snapToGrid) 0.18f else 0.08f),
-                            start = Offset(x, 0f),
-                            end = Offset(x, size.height),
-                            strokeWidth = 1.dp.toPx()
+                            color = gridColor.copy(
+                                alpha = when {
+                                    isCenter -> if (preset.snapToGrid) 0.36f else 0.18f
+                                    preset.snapToGrid -> 0.18f
+                                    else -> 0.07f
+                                }
+                            ),
+                            start = Offset(xPx, 0f),
+                            end = Offset(xPx, size.height),
+                            strokeWidth = if (isCenter) 1.5.dp.toPx() else 1.dp.toPx()
                         )
-                        x += cell
                     }
-                    var y = 0f
-                    while (y <= size.height) {
+                    GridSnapper.gridLineFractions(preset.gridRows).forEach { yFrac ->
+                        val yPx = yFrac * size.height
+                        val isCenter = abs(yFrac - 0.5f) < 0.0005f
                         drawLine(
-                            color = gridColor.copy(alpha = if (preset.snapToGrid) 0.18f else 0.08f),
-                            start = Offset(0f, y),
-                            end = Offset(size.width, y),
-                            strokeWidth = 1.dp.toPx()
+                            color = gridColor.copy(
+                                alpha = when {
+                                    isCenter -> if (preset.snapToGrid) 0.36f else 0.18f
+                                    preset.snapToGrid -> 0.18f
+                                    else -> 0.07f
+                                }
+                            ),
+                            start = Offset(0f, yPx),
+                            end = Offset(size.width, yPx),
+                            strokeWidth = if (isCenter) 1.5.dp.toPx() else 1.dp.toPx()
                         )
-                        y += cell
                     }
                     activeDragPos?.second?.let { (dx, dy) ->
                         val cx = dx * size.width
                         val cy = dy * size.height
                         drawLine(
-                            color = gridColor.copy(alpha = 0.40f),
+                            color = gridColor.copy(alpha = 0.44f),
                             start = Offset(cx, 0f),
                             end = Offset(cx, size.height),
                             strokeWidth = 1.dp.toPx()
                         )
                         drawLine(
-                            color = gridColor.copy(alpha = 0.40f),
+                            color = gridColor.copy(alpha = 0.44f),
                             start = Offset(0f, cy),
                             end = Offset(size.width, cy),
                             strokeWidth = 1.dp.toPx()
+                        )
+                        drawCircle(
+                            color = gridColor.copy(alpha = 0.90f),
+                            radius = 4.dp.toPx(),
+                            center = Offset(cx, cy)
                         )
                     }
                 }
@@ -641,7 +660,7 @@ fun OverlayGridEditorScreen(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
                             "Size",
@@ -661,7 +680,7 @@ fun OverlayGridEditorScreen(
                             modifier = Modifier.weight(1f)
                         )
                         Text(
-                            "Grid",
+                            "Snap",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -669,6 +688,52 @@ fun OverlayGridEditorScreen(
                             checked = preset.snapToGrid,
                             onCheckedChange = { onUpdatePreset(preset.copy(snapToGrid = it)) }
                         )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Grid Divisions",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    val nextRows = (preset.gridRows - 2).coerceIn(
+                                        GridSnapper.MIN_GRID_ROWS,
+                                        GridSnapper.MAX_GRID_ROWS
+                                    )
+                                    onUpdatePreset(preset.copy(gridRows = nextRows))
+                                },
+                                enabled = preset.gridRows > GridSnapper.MIN_GRID_ROWS
+                            ) {
+                                Icon(Icons.Default.Remove, contentDescription = "Fewer grid rows", modifier = Modifier.size(18.dp))
+                            }
+                            Text(
+                                text = "${preset.gridRows} × $gridCols",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            IconButton(
+                                onClick = {
+                                    val nextRows = (preset.gridRows + 2).coerceIn(
+                                        GridSnapper.MIN_GRID_ROWS,
+                                        GridSnapper.MAX_GRID_ROWS
+                                    )
+                                    onUpdatePreset(preset.copy(gridRows = nextRows))
+                                },
+                                enabled = preset.gridRows < GridSnapper.MAX_GRID_ROWS
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "More grid rows", modifier = Modifier.size(18.dp))
+                            }
+                        }
                     }
                 }
             }

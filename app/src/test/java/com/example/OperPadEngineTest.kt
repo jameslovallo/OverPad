@@ -29,6 +29,13 @@ class OperPadEngineTest {
         assertFalse(retro.placementFor(ControlType.RIGHT_STICK).visible)
         assertTrue(retro.placementFor(ControlType.DPAD).visible)
         assertTrue(retro.placementFor(ControlType.SETTINGS).visible)
+
+        DefaultPresets.all.forEach { preset ->
+            assertEquals(GridSnapper.DEFAULT_GRID_ROWS, preset.gridRows)
+            preset.controls.forEach { placement ->
+                assertEquals(1.0f, placement.scale, 0.0001f)
+            }
+        }
     }
 
     @Test
@@ -87,17 +94,25 @@ class OperPadEngineTest {
     }
 
     @Test
-    fun gridSnapper_snapsPositionsAndScalesCleanly() {
+    fun gridSnapper_centersGridOnScreenCenterWithAspectProportionalColumns() {
+        assertEquals(36, GridSnapper.computeGridColumns(20, 1600f, 900f))
+        assertEquals(44, GridSnapper.computeGridColumns(20, 2000f, 900f))
+        assertEquals(27, GridSnapper.computeGridColumns(20, 1200f, 900f))
+
+        assertTrue(GridSnapper.gridLineFractions(20).any { kotlin.math.abs(it - 0.5f) < 0.0001f })
+        assertTrue(GridSnapper.gridLineFractions(27).any { kotlin.math.abs(it - 0.5f) < 0.0001f })
+        assertTrue(GridSnapper.gridLineFractions(15).any { kotlin.math.abs(it - 0.5f) < 0.0001f })
+
         val (snappedX, snappedY) = GridSnapper.snapPosition(
-            rawXFraction = 0.51f,
-            rawYFraction = 0.49f,
-            widthPx = 1000f,
-            heightPx = 500f,
-            stepPx = 50f,
+            rawXFraction = 0.505f,
+            rawYFraction = 0.495f,
+            widthPx = 1200f,
+            heightPx = 900f,
+            gridRows = 15,
             enabled = true
         )
-        assertEquals(0.50f, snappedX, 0.001f)
-        assertEquals(0.50f, snappedY, 0.001f)
+        assertEquals(0.50f, snappedX, 0.0001f)
+        assertEquals(0.50f, snappedY, 0.0001f)
 
         assertEquals(1.25f, GridSnapper.snapScale(1.23f), 0.001f)
         assertEquals(0.80f, GridSnapper.snapOpacity(0.79f), 0.001f)
@@ -310,38 +325,38 @@ class OperPadEngineTest {
 
     @Test
     fun controlDragHelper_snapsAcrossGridStepsAndPrioritizesOverlappingSmallButtons() {
-        // 1. Continuous total-delta dragging crosses grid boundaries cleanly even when stepPx is coarse
+        // 1. Continuous total-delta dragging crosses centered division intersections cleanly (2:1 -> 40 cols x 20 rows)
         val startX = 0.20f
         val startY = 0.50f
-        val widthPx = 1000f
-        val heightPx = 600f
-        val stepPx = 20f
+        val widthPx = 2000f
+        val heightPx = 1000f
+        val gridRows = 20
 
         val smallMove = com.example.ui.gamepad.ControlDragHelper.computeDraggedPlacement(
             startXFraction = startX,
             startYFraction = startY,
-            totalDeltaXPx = 35f,
+            totalDeltaXPx = 55f,
             totalDeltaYPx = 0f,
             canvasWidthPx = widthPx,
             canvasHeightPx = heightPx,
-            stepPx = stepPx,
+            gridRows = gridRows,
             snapToGrid = true
         )
-        assertEquals(0.24f, smallMove.first, 0.001f)
+        assertEquals(0.225f, smallMove.first, 0.001f)
         assertEquals(0.50f, smallMove.second, 0.001f)
 
         val continuedMove = com.example.ui.gamepad.ControlDragHelper.computeDraggedPlacement(
             startXFraction = startX,
             startYFraction = startY,
-            totalDeltaXPx = 120f,
-            totalDeltaYPx = -40f,
+            totalDeltaXPx = 200f,
+            totalDeltaYPx = -100f,
             canvasWidthPx = widthPx,
             canvasHeightPx = heightPx,
-            stepPx = stepPx,
+            gridRows = gridRows,
             snapToGrid = true
         )
-        assertEquals(0.32f, continuedMove.first, 0.001f)
-        assertEquals(260f / 600f, continuedMove.second, 0.001f)
+        assertEquals(0.30f, continuedMove.first, 0.001f)
+        assertEquals(0.40f, continuedMove.second, 0.001f)
 
         // 2. Scaled-down editor hit-testing keeps 48dp minimum target and lets small L3 win over adjacent large LEFT_STICK
         val preset = DefaultPresets.consoleFull()

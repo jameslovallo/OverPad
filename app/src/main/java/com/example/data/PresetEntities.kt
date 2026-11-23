@@ -23,7 +23,7 @@ data class PresetEntity(
     val category: String,
     val isBuiltIn: Boolean,
     val opacity: Float,
-    val gridStepDp: Int,
+    val gridRows: Int,
     val snapToGrid: Boolean,
     val leftMoveZoneEnabled: Boolean = false,
     val fpsRightZoneEnabled: Boolean,
@@ -69,7 +69,10 @@ fun PresetEntity.toDomain(): ControllerPreset {
         category = parsedCategory,
         isBuiltIn = isBuiltIn,
         opacity = opacity,
-        gridStepDp = gridStepDp,
+        gridRows = gridRows.coerceIn(
+            com.example.model.GridSnapper.MIN_GRID_ROWS,
+            com.example.model.GridSnapper.MAX_GRID_ROWS
+        ),
         snapToGrid = snapToGrid,
         leftMoveZoneEnabled = leftMoveZoneEnabled,
         fpsRightZoneEnabled = fpsRightZoneEnabled,
@@ -90,7 +93,10 @@ fun ControllerPreset.toEntity(): PresetEntity = PresetEntity(
     category = category.name,
     isBuiltIn = isBuiltIn,
     opacity = opacity,
-    gridStepDp = gridStepDp,
+    gridRows = gridRows.coerceIn(
+        com.example.model.GridSnapper.MIN_GRID_ROWS,
+        com.example.model.GridSnapper.MAX_GRID_ROWS
+    ),
     snapToGrid = snapToGrid,
     leftMoveZoneEnabled = leftMoveZoneEnabled,
     fpsRightZoneEnabled = fpsRightZoneEnabled,

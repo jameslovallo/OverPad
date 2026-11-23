@@ -50,12 +50,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.example.model.ControlType
 import com.example.model.ControllerPreset
+import com.example.ui.gamepad.ControlDragHelper
 import com.example.ui.gamepad.FpsRightLookZoneSurface
 import com.example.ui.gamepad.GamepadControlNode
 import com.example.ui.gamepad.LeftMoveZoneSurface
@@ -160,6 +162,8 @@ fun SandboxScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
                 ) {
+                    val context = LocalContext.current
+                    val landscapeAspectRatio = remember(context) { ControlDragHelper.deviceLandscapeAspectRatio(context) }
                     val density = LocalDensity.current
                     val crosshairColor = MaterialTheme.colorScheme.outlineVariant
                     val stickOrbColor = MaterialTheme.colorScheme.secondary
@@ -171,7 +175,7 @@ fun SandboxScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(10.dp)
-                            .aspectRatio(16f / 9.5f)
+                            .aspectRatio(landscapeAspectRatio)
                             .clip(RoundedCornerShape(14.dp))
                             .background(MaterialTheme.colorScheme.surfaceContainer)
                             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))

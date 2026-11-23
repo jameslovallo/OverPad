@@ -30,10 +30,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -68,6 +70,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
@@ -81,6 +84,7 @@ import com.example.ui.gamepad.GamepadControlIcon
 import com.example.ui.gamepad.GamepadControlNode
 import com.example.ui.gamepad.hasCustomIcon
 import com.example.xinput.TouchMouseLookFilter
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
@@ -102,6 +106,9 @@ fun LayoutEditorScreen(
 ) {
     val preset = presets.firstOrNull { it.id == editingPresetId } ?: presets.firstOrNull() ?: return
     val selectedPlacement = preset.placementFor(selectedControl)
+    val context = LocalContext.current
+    val landscapeAspectRatio = remember(context) { ControlDragHelper.deviceLandscapeAspectRatio(context) }
+    val previewCols = GridSnapper.computeGridColumns(preset.gridRows, landscapeAspectRatio)
     var showDuplicateDialog by remember { mutableStateOf(false) }
     var duplicateName by remember { mutableStateOf("") }
     var activeDragPos by remember { mutableStateOf<Pair<ControlType, Pair<Float, Float>>?>(null) }
@@ -215,7 +222,7 @@ fun LayoutEditorScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = if (preset.snapToGrid) "${preset.gridStepDp}dp grid" else "Free drag",
+                                text = if (preset.snapToGrid) "${preset.gridRows} × $previewCols grid" else "Free drag",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -240,7 +247,7 @@ fun LayoutEditorScreen(
                         BoxWithConstraints(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .aspectRatio(16f / 9.5f)
+                                .aspectRatio(landscapeAspectRatio)
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainer)
                                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
@@ -248,13 +255,11 @@ fun LayoutEditorScreen(
                             val widthPx = with(density) { maxWidth.toPx() }
                             val heightPx = with(density) { maxHeight.toPx() }
                             val canvasScale = (maxWidth / 760.dp).coerceIn(0.45f, 0.95f)
-                            val stepPx = with(density) { (preset.gridStepDp * canvasScale).dp.toPx() }.coerceAtLeast(10f)
 
                             val latestPreset by rememberUpdatedState(preset)
                             val latestSelectedControl by rememberUpdatedState(selectedControl)
                             val latestWidthPx by rememberUpdatedState(widthPx)
                             val latestHeightPx by rememberUpdatedState(heightPx)
-                            val latestStepPx by rememberUpdatedState(stepPx)
                             val latestCanvasScale by rememberUpdatedState(canvasScale)
                             val latestOnSelectControl by rememberUpdatedState(onSelectControl)
                             val latestOnUpdatePreset by rememberUpdatedState(onUpdatePreset)
@@ -307,7 +312,7 @@ fun LayoutEditorScreen(
                                                             totalDeltaYPx = totalDelta.y,
                                                             canvasWidthPx = latestWidthPx,
                                                             canvasHeightPx = latestHeightPx,
-                                                            stepPx = latestStepPx,
+                                                            gridRows = latestPreset.gridRows,
                                                             snapToGrid = latestPreset.snapToGrid
                                                         )
                                                         activeDragPos = hit.type to snapped
@@ -356,40 +361,58 @@ fun LayoutEditorScreen(
                                             size = Size(size.width / 2f, size.height)
                                         )
                                     }
-                                    var x = 0f
-                                    while (x <= size.width) {
+                                    val cols = GridSnapper.computeGridColumns(preset.gridRows, size.width, size.height)
+                                    GridSnapper.gridLineFractions(cols).forEach { xFrac ->
+                                        val xPx = xFrac * size.width
+                                        val isCenter = abs(xFrac - 0.5f) < 0.0005f
                                         drawLine(
-                                            color = gridColor.copy(alpha = if (preset.snapToGrid) 0.16f else 0.06f),
-                                            start = Offset(x, 0f),
-                                            end = Offset(x, size.height),
-                                            strokeWidth = 1.dp.toPx()
+                                            color = gridColor.copy(
+                                                alpha = when {
+                                                    isCenter -> if (preset.snapToGrid) 0.34f else 0.18f
+                                                    preset.snapToGrid -> 0.16f
+                                                    else -> 0.06f
+                                                }
+                                            ),
+                                            start = Offset(xPx, 0f),
+                                            end = Offset(xPx, size.height),
+                                            strokeWidth = if (isCenter) 1.5.dp.toPx() else 1.dp.toPx()
                                         )
-                                        x += stepPx
                                     }
-                                    var y = 0f
-                                    while (y <= size.height) {
+                                    GridSnapper.gridLineFractions(preset.gridRows).forEach { yFrac ->
+                                        val yPx = yFrac * size.height
+                                        val isCenter = abs(yFrac - 0.5f) < 0.0005f
                                         drawLine(
-                                            color = gridColor.copy(alpha = if (preset.snapToGrid) 0.16f else 0.06f),
-                                            start = Offset(0f, y),
-                                            end = Offset(size.width, y),
-                                            strokeWidth = 1.dp.toPx()
+                                            color = gridColor.copy(
+                                                alpha = when {
+                                                    isCenter -> if (preset.snapToGrid) 0.34f else 0.18f
+                                                    preset.snapToGrid -> 0.16f
+                                                    else -> 0.06f
+                                                }
+                                            ),
+                                            start = Offset(0f, yPx),
+                                            end = Offset(size.width, yPx),
+                                            strokeWidth = if (isCenter) 1.5.dp.toPx() else 1.dp.toPx()
                                         )
-                                        y += stepPx
                                     }
                                     activeDragPos?.second?.let { (dx, dy) ->
                                         val cx = dx * size.width
                                         val cy = dy * size.height
                                         drawLine(
-                                            color = gridColor.copy(alpha = 0.35f),
+                                            color = gridColor.copy(alpha = 0.42f),
                                             start = Offset(cx, 0f),
                                             end = Offset(cx, size.height),
                                             strokeWidth = 1.dp.toPx()
                                         )
                                         drawLine(
-                                            color = gridColor.copy(alpha = 0.35f),
+                                            color = gridColor.copy(alpha = 0.42f),
                                             start = Offset(0f, cy),
                                             end = Offset(size.width, cy),
                                             strokeWidth = 1.dp.toPx()
+                                        )
+                                        drawCircle(
+                                            color = gridColor.copy(alpha = 0.85f),
+                                            radius = 3.5.dp.toPx(),
+                                            center = Offset(cx, cy)
                                         )
                                     }
                                 }
@@ -673,18 +696,65 @@ fun LayoutEditorScreen(
                             )
                         }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Grid", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            listOf(16, 24, 32).forEach { step ->
-                                FilterChip(
-                                    selected = preset.gridStepDp == step,
-                                    onClick = { onUpdatePreset(preset.copy(gridStepDp = step)) },
-                                    label = { Text("${step}dp") }
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Grid Divisions", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    text = "${preset.gridRows} rows × $previewCols cols",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
                                 )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        val nextRows = (preset.gridRows - 1).coerceIn(
+                                            GridSnapper.MIN_GRID_ROWS,
+                                            GridSnapper.MAX_GRID_ROWS
+                                        )
+                                        onUpdatePreset(preset.copy(gridRows = nextRows))
+                                    },
+                                    enabled = preset.gridRows > GridSnapper.MIN_GRID_ROWS,
+                                    modifier = Modifier.testTag("grid_rows_decrease_button")
+                                ) {
+                                    Icon(Icons.Default.Remove, contentDescription = "Decrease vertical grid divisions")
+                                }
+                                Slider(
+                                    value = preset.gridRows.toFloat(),
+                                    onValueChange = { raw ->
+                                        val nextRows = raw.roundToInt().coerceIn(
+                                            GridSnapper.MIN_GRID_ROWS,
+                                            GridSnapper.MAX_GRID_ROWS
+                                        )
+                                        onUpdatePreset(preset.copy(gridRows = nextRows))
+                                    },
+                                    valueRange = GridSnapper.MIN_GRID_ROWS.toFloat()..GridSnapper.MAX_GRID_ROWS.toFloat(),
+                                    steps = GridSnapper.MAX_GRID_ROWS - GridSnapper.MIN_GRID_ROWS - 1,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("grid_rows_slider")
+                                )
+                                IconButton(
+                                    onClick = {
+                                        val nextRows = (preset.gridRows + 1).coerceIn(
+                                            GridSnapper.MIN_GRID_ROWS,
+                                            GridSnapper.MAX_GRID_ROWS
+                                        )
+                                        onUpdatePreset(preset.copy(gridRows = nextRows))
+                                    },
+                                    enabled = preset.gridRows < GridSnapper.MAX_GRID_ROWS,
+                                    modifier = Modifier.testTag("grid_rows_increase_button")
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = "Increase vertical grid divisions")
+                                }
                             }
                         }
 

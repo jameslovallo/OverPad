@@ -1,5 +1,9 @@
 package com.example.ui.gamepad
 
+import android.content.Context
+import android.os.Build
+import android.util.DisplayMetrics
+import android.view.WindowManager
 import com.example.model.ControlPlacement
 import com.example.model.ControlType
 import com.example.model.GridSnapper
@@ -7,10 +11,31 @@ import kotlin.math.abs
 import kotlin.math.hypot
 
 /**
- * Pure hit-testing and fixed-canvas drag math shared by the in-app Layout Editor
- * and the floating Overlay Grid Editor.
+ * Pure hit-testing, device aspect ratio, and fixed-canvas drag math shared by the in-app
+ * Layout Editor and the floating Overlay Grid Editor.
  */
 object ControlDragHelper {
+
+    fun deviceLandscapeAspectRatio(context: Context): Float {
+        val windowManager = context.getSystemService(WindowManager::class.java)
+        val (w, h) = if (windowManager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = windowManager.maximumWindowMetrics.bounds
+            bounds.width().toFloat() to bounds.height().toFloat()
+        } else if (windowManager != null) {
+            val metrics = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
+            metrics.widthPixels.toFloat() to metrics.heightPixels.toFloat()
+        } else {
+            val metrics = context.resources.displayMetrics
+            metrics.widthPixels.toFloat() to metrics.heightPixels.toFloat()
+        }
+        return if (w > 0f && h > 0f) {
+            (maxOf(w, h) / minOf(w, h)).coerceIn(1.25f, 2.60f)
+        } else {
+            16f / 9f
+        }
+    }
 
     fun findHitControl(
         touchX: Float,
@@ -41,7 +66,6 @@ object ControlDragHelper {
             val dx = abs(touchX - cx)
             val dy = abs(touchY - cy)
             if (dx <= hitHalfW && dy <= hitHalfH) {
-                // Normalized distance to control center + slight tie-breaker favoring smaller/selected controls
                 val normalizedDist = hypot(dx / hitHalfW, dy / hitHalfH)
                 val areaFactor = (placement.type.baseWidthDp * placement.type.baseHeightDp) / 20_000f
                 val selectionBonus = if (placement.type == selectedControl) -0.04f else 0f
@@ -63,7 +87,7 @@ object ControlDragHelper {
         totalDeltaYPx: Float,
         canvasWidthPx: Float,
         canvasHeightPx: Float,
-        stepPx: Float,
+        gridRows: Int,
         snapToGrid: Boolean
     ): Pair<Float, Float> {
         if (canvasWidthPx <= 0f || canvasHeightPx <= 0f) {
@@ -76,7 +100,7 @@ object ControlDragHelper {
             rawYFraction = rawY,
             widthPx = canvasWidthPx,
             heightPx = canvasHeightPx,
-            stepPx = stepPx,
+            gridRows = gridRows,
             enabled = snapToGrid
         )
     }
