@@ -326,6 +326,31 @@ class OverPadEngineTest {
         }
         assertTrue(settledToZero)
         assertEquals(null, flickFilter.decayIfIdle(500L, sensitivity = 2.5f))
+
+        // 6. Progressive precision + acceleration curve: slow tracking stays controlled near anti-deadzone
+        // while fast swipes accelerate non-linearly instead of saturating prematurely
+        fun steadyOutputForSpeed(dpPerSec: Float): Float {
+            val f = com.example.xinput.TouchMouseLookFilter().apply { onPointerDown(0L) }
+            val stepDp = dpPerSec * 0.016f
+            var out = 0f
+            for (frame in 1..8) {
+                out = f.onPointerMove(stepDp, 0f, frame * 16L, sensitivity = 2.5f, antiDeadzone = 0.14f).first
+            }
+            return out
+        }
+        val slowAim = steadyOutputForSpeed(60f)
+        val mediumPan = steadyOutputForSpeed(300f)
+        val fastTurn = steadyOutputForSpeed(600f)
+        assertTrue("Slow aim ($slowAim) should stay in fine micro-aim band", slowAim in 0.145f..0.22f)
+        assertTrue("Turn acceleration should ramp steeper at higher speed", (fastTurn - mediumPan) > (mediumPan - slowAim))
+
+        // 7. Direction reversal snaps cleanly past zero without sluggish glide lag
+        val reversalFilter = com.example.xinput.TouchMouseLookFilter().apply { onPointerDown(0L) }
+        for (i in 1..4) {
+            reversalFilter.onPointerMove(6.4f, 0f, i * 16L, sensitivity = 2.5f, antiDeadzone = 0.14f)
+        }
+        val (revX, _) = reversalFilter.onPointerMove(-6.4f, 0f, 80L, sensitivity = 2.5f, antiDeadzone = 0.14f)
+        assertTrue("Immediate reversal should turn negative on first opposing swipe ($revX)", revX < -0.14f)
     }
 
     @Test
