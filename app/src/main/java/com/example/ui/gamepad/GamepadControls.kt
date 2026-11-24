@@ -6,6 +6,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -18,6 +19,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -29,13 +32,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerId
@@ -47,6 +50,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.model.ButtonShape
 import com.example.model.ControlPlacement
 import com.example.model.ControlType
 import com.example.model.ControllerPreset
@@ -69,10 +73,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
+
+fun ButtonShape.toComposeShape(): Shape = when (this) {
+    ButtonShape.CIRCLE -> CircleShape
+    ButtonShape.ROUNDED -> RoundedCornerShape(percent = 24)
+    ButtonShape.PILL -> RoundedCornerShape(50)
+    ButtonShape.SQUARE -> RoundedCornerShape(percent = 6)
+}
 
 @Composable
 fun GamepadControlNode(
@@ -87,9 +97,23 @@ fun GamepadControlNode(
     modifier: Modifier = Modifier
 ) {
     val type = placement.type
-    val widthDp = (type.baseWidthDp * placement.scale).dp
-    val heightDp = (type.baseHeightDp * placement.scale).dp
+    val widthDp = placement.effectiveWidthDp().dp
+    val heightDp = placement.effectiveHeightDp().dp
+    val resolvedShape = placement.resolvedShape()
+    val composeShape = resolvedShape.toComposeShape()
+    val isToggleable = placement.toggleable && type.supportsToggle
     val view = LocalView.current
+
+    val engineState = if (engine != null && interactive && isToggleable) {
+        engine.state.collectAsState().value
+    } else {
+        null
+    }
+    val engineActive: Boolean? = if (engineState != null && type.keyCode != null) {
+        engineState.isPressed(type.keyCode)
+    } else {
+        null
+    }
 
     fun performHaptic() {
         if (hapticsEnabled) {
@@ -97,8 +121,9 @@ fun GamepadControlNode(
         }
     }
 
+    val selectionShape = if (type.supportsShape) composeShape else RoundedCornerShape(14.dp)
     val selectionModifier = if (isSelectedInEditor) {
-        Modifier.border(2.dp, ElectricCyan, RoundedCornerShape(14.dp))
+        Modifier.border(2.dp, ElectricCyan, selectionShape)
     } else {
         Modifier
     }
@@ -136,6 +161,7 @@ fun GamepadControlNode(
 
             ControlType.DPAD -> {
                 DPadWidget(
+                    shape = composeShape,
                     interactive = interactive,
                     onDirectionChanged = { dir -> engine?.updateDPad(dir) },
                     onTouchDown = { performHaptic() }
@@ -145,7 +171,9 @@ fun GamepadControlNode(
             ControlType.TRIGGER_LT, ControlType.TRIGGER_RT -> {
                 TriggerDragAimWidget(
                     controlType = type,
-                    scale = placement.scale,
+                    shape = composeShape,
+                    toggleable = isToggleable,
+                    engineActive = engineActive,
                     preset = preset,
                     interactive = interactive,
                     antiDeadzone = antiDeadzone,
@@ -159,7 +187,9 @@ fun GamepadControlNode(
             ControlType.BUTTON_A, ControlType.BUTTON_B, ControlType.BUTTON_X, ControlType.BUTTON_Y -> {
                 FaceButtonWidget(
                     controlType = type,
-                    scale = placement.scale,
+                    shape = composeShape,
+                    toggleable = isToggleable,
+                    engineActive = engineActive,
                     interactive = interactive,
                     onPressChanged = { pressed ->
                         if (pressed) performHaptic()
@@ -170,7 +200,7 @@ fun GamepadControlNode(
 
             ControlType.SETTINGS -> {
                 SettingsOverlayButton(
-                    scale = placement.scale,
+                    shape = composeShape,
                     interactive = interactive,
                     onClick = {
                         performHaptic()
@@ -182,7 +212,9 @@ fun GamepadControlNode(
             else -> {
                 CapsuleGamepadButton(
                     controlType = type,
-                    scale = placement.scale,
+                    shape = composeShape,
+                    toggleable = isToggleable,
+                    engineActive = engineActive,
                     interactive = interactive,
                     onPressChanged = { pressed ->
                         if (pressed) performHaptic()
@@ -412,59 +444,134 @@ private fun ThumbstickWidget(
 
 @Composable
 private fun DPadWidget(
+    shape: Shape,
     interactive: Boolean,
     onDirectionChanged: (DPadDirectionState) -> Unit,
     onTouchDown: () -> Unit
 ) {
     var dpadState by remember { mutableStateOf(DPadDirectionState()) }
+    var touching by remember { mutableStateOf(false) }
+    var flickOffset by remember { mutableStateOf(Offset.Zero) }
 
-    fun computeDirection(pos: Offset, width: Int, height: Int): DPadDirectionState {
-        val cx = width / 2f
-        val cy = height / 2f
-        val dx = pos.x - cx
-        val dy = pos.y - cy
-        val radius = (minOf(width, height) / 2f).coerceAtLeast(1f)
-        if (hypot(dx, dy) < radius * 0.18f) {
-            return DPadDirectionState()
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val flickController = remember { DPadFlickController() }
+    val currentOnDirectionChanged by rememberUpdatedState(onDirectionChanged)
+    val currentOnTouchDown by rememberUpdatedState(onTouchDown)
+
+    DisposableEffect(Unit) {
+        onDispose {
+            dpadState = DPadDirectionState()
+            currentOnDirectionChanged(DPadDirectionState())
         }
-        val angleDeg = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble()))
-        // 8-way directional sectors (each cardinal spans +/- 67.5 deg so diagonals overlap naturally)
-        val right = angleDeg in -67.5..67.5
-        val down = angleDeg in 22.5..157.5
-        val up = angleDeg in -157.5..-22.5
-        val left = angleDeg >= 112.5 || angleDeg <= -112.5
-        return DPadDirectionState(up = up, down = down, left = left, right = right)
     }
 
     val touchMod = if (interactive) {
         Modifier.pointerInput(Unit) {
             awaitPointerEventScope {
                 var activePointerId: PointerId? = null
+                var holdJob: Job? = null
+                var clearPulseJob: Job? = null
+
                 while (true) {
                     val event = awaitPointerEvent(PointerEventPass.Main)
                     if (activePointerId == null) {
                         val down = event.changes.firstOrNull { it.pressed }
                         if (down != null) {
+                            clearPulseJob?.cancel()
+                            clearPulseJob = null
                             activePointerId = down.id
-                            onTouchDown()
-                            val next = computeDirection(down.position, size.width, size.height)
-                            dpadState = next
-                            onDirectionChanged(next)
+                            touching = true
+                            flickOffset = Offset.Zero
+                            flickController.onDown(down.position.x, down.position.y)
+                            if (dpadState != DPadDirectionState()) {
+                                val cleared = DPadDirectionState()
+                                dpadState = cleared
+                                currentOnDirectionChanged(cleared)
+                            }
+                            val pointerId = down.id
+                            val boxWidth = size.width
+                            val boxHeight = size.height
+                            holdJob?.cancel()
+                            holdJob = scope.launch {
+                                delay(DPadFlickController.HOLD_DWELL_MS)
+                                if (activePointerId == pointerId) {
+                                    val holdDir = flickController.onHoldDwellElapsed(
+                                        width = boxWidth,
+                                        height = boxHeight,
+                                        uptimeMs = SystemClock.uptimeMillis()
+                                    )
+                                    if (holdDir != null) {
+                                        dpadState = holdDir
+                                        currentOnDirectionChanged(holdDir)
+                                        currentOnTouchDown()
+                                    }
+                                }
+                            }
                             down.consume()
                         }
                     } else {
                         val change = event.changes.firstOrNull { it.id == activePointerId }
                         if (change == null || !change.pressed) {
                             activePointerId = null
-                            val cleared = DPadDirectionState()
-                            dpadState = cleared
-                            onDirectionChanged(cleared)
+                            holdJob?.cancel()
+                            holdJob = null
+                            touching = false
+                            flickOffset = Offset.Zero
+
+                            val outcome = flickController.onUp(
+                                width = size.width,
+                                height = size.height,
+                                uptimeMs = change?.uptimeMillis ?: SystemClock.uptimeMillis()
+                            )
+                            when {
+                                outcome.tapPulseDirection != null -> {
+                                    val pulse = outcome.tapPulseDirection
+                                    dpadState = pulse
+                                    currentOnDirectionChanged(pulse)
+                                    currentOnTouchDown()
+                                    clearPulseJob?.cancel()
+                                    clearPulseJob = scope.launch {
+                                        delay(DPadFlickController.MIN_FLICK_PULSE_MS)
+                                        val cleared = DPadDirectionState()
+                                        dpadState = cleared
+                                        currentOnDirectionChanged(cleared)
+                                    }
+                                }
+                                outcome.shouldDeferClearMs > 0L -> {
+                                    clearPulseJob?.cancel()
+                                    clearPulseJob = scope.launch {
+                                        delay(outcome.shouldDeferClearMs)
+                                        val cleared = DPadDirectionState()
+                                        dpadState = cleared
+                                        currentOnDirectionChanged(cleared)
+                                    }
+                                }
+                                else -> {
+                                    val cleared = DPadDirectionState()
+                                    dpadState = cleared
+                                    currentOnDirectionChanged(cleared)
+                                }
+                            }
                             change?.consume()
                         } else {
-                            val next = computeDirection(change.position, size.width, size.height)
-                            if (next != dpadState) {
-                                dpadState = next
-                                onDirectionChanged(next)
+                            val move = flickController.onMove(
+                                x = change.position.x,
+                                y = change.position.y,
+                                densityPx = density.density,
+                                uptimeMs = change.uptimeMillis
+                            )
+                            if (move.isFlickActive) {
+                                holdJob?.cancel()
+                                holdJob = null
+                                flickOffset = Offset(move.visualOffsetXFraction, move.visualOffsetYFraction)
+                            }
+                            if (move.directionChanged) {
+                                dpadState = move.direction
+                                currentOnDirectionChanged(move.direction)
+                                if (move.direction != DPadDirectionState()) {
+                                    currentOnTouchDown()
+                                }
                             }
                             change.consume()
                         }
@@ -474,106 +581,152 @@ private fun DPadWidget(
         }
     } else Modifier
 
-    Box(modifier = Modifier.fillMaxSize().then(touchMod), contentAlignment = Alignment.Center) {
+    val isLit = touching || dpadState != DPadDirectionState()
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(shape)
+            .background(
+                if (isLit) Color(0xFF142138).copy(alpha = 0.90f)
+                else Color(0xFF0E1525).copy(alpha = 0.85f)
+            )
+            .border(
+                width = (if (isLit) 2.0f else 1.5f).dp,
+                color = if (isLit) ElectricCyan.copy(alpha = 0.78f) else Color(0xFF3A4A66),
+                shape = shape
+            )
+            .then(touchMod),
+        contentAlignment = Alignment.Center
+    ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
             val cx = w / 2f
             val cy = h / 2f
-            val armHalf = w * 0.16f
-            val outerMargin = w * 0.08f
-            val corner = w * 0.06f
+            val minDim = size.minDimension
+            val stemStartX = minDim * 0.11f
+            val stemStartY = minDim * 0.11f
+            val tipDistX = w * 0.36f
+            val tipDistY = h * 0.36f
+            val headBack = minDim * 0.085f
+            val headWing = minDim * 0.082f
+            val strokeWidth = (minDim * 0.022f).coerceAtLeast(1.8.dp.toPx())
+            val haloRadius = minDim * 0.13f
 
-            // Circular backing dish
-            drawCircle(
-                color = Color(0xFF0E1525).copy(alpha = 0.85f),
-                radius = w * 0.46f,
-                center = Offset(cx, cy)
-            )
-            drawCircle(
-                color = Color(0xFF2B3A55),
-                radius = w * 0.46f,
-                center = Offset(cx, cy),
-                style = Stroke(width = 1.5.dp.toPx())
-            )
-
-            // Sculpted physical Cross ("+") silhouette
-            val crossPath = Path().apply {
-                moveTo(cx - armHalf, outerMargin + corner)
-                lineTo(cx - armHalf, cy - armHalf)
-                lineTo(outerMargin + corner, cy - armHalf)
-                lineTo(outerMargin, cy - armHalf + corner)
-                lineTo(outerMargin, cy + armHalf - corner)
-                lineTo(outerMargin + corner, cy + armHalf)
-                lineTo(cx - armHalf, cy + armHalf)
-                lineTo(cx - armHalf, h - outerMargin - corner)
-                lineTo(cx - armHalf + corner, h - outerMargin)
-                lineTo(cx + armHalf - corner, h - outerMargin)
-                lineTo(cx + armHalf, h - outerMargin - corner)
-                lineTo(cx + armHalf, cy + armHalf)
-                lineTo(w - outerMargin - corner, cy + armHalf)
-                lineTo(w - outerMargin, cy + armHalf - corner)
-                lineTo(w - outerMargin, cy - armHalf + corner)
-                lineTo(w - outerMargin - corner, cy - armHalf)
-                lineTo(cx + armHalf, cy - armHalf)
-                lineTo(cx + armHalf, outerMargin + corner)
-                lineTo(cx + armHalf - corner, outerMargin)
-                lineTo(cx - armHalf + corner, outerMargin)
-                close()
-            }
-
-            drawPath(
-                path = crossPath,
-                brush = Brush.verticalGradient(
-                    colors = listOf(Color(0xFF293548), Color(0xFF172033))
-                )
-            )
-            drawPath(
-                path = crossPath,
-                color = Color(0xFF64748B),
-                style = Stroke(width = 1.6.dp.toPx())
-            )
-
-            // Active arm highlight pads
-            fun drawArmHighlight(active: Boolean, topLeft: Offset, boxSize: Size) {
-                if (!active) return
-                drawRoundRect(
-                    color = ElectricCyan.copy(alpha = 0.42f),
-                    topLeft = topLeft,
-                    size = boxSize,
-                    cornerRadius = CornerRadius(6.dp.toPx(), 6.dp.toPx())
-                )
-            }
-
-            val armLen = (cy - armHalf) - outerMargin
-            drawArmHighlight(dpadState.up, Offset(cx - armHalf * 0.85f, outerMargin + 2f), Size(armHalf * 1.7f, armLen))
-            drawArmHighlight(dpadState.down, Offset(cx - armHalf * 0.85f, cy + armHalf), Size(armHalf * 1.7f, armLen))
-            drawArmHighlight(dpadState.left, Offset(outerMargin + 2f, cy - armHalf * 0.85f), Size(armLen, armHalf * 1.7f))
-            drawArmHighlight(dpadState.right, Offset(cx + armHalf, cy - armHalf * 0.85f), Size(armLen, armHalf * 1.7f))
-
-            // Directional chevrons
-            val chevDist = w * 0.29f
-            val chevSize = w * 0.055f
-            fun drawTriangle(tip: Offset, base1: Offset, base2: Offset, lit: Boolean) {
-                val p = Path().apply {
-                    moveTo(tip.x, tip.y)
-                    lineTo(base1.x, base1.y)
-                    lineTo(base2.x, base2.y)
-                    close()
+            fun drawStemmedArrow(
+                stemStart: Offset,
+                tip: Offset,
+                wing1: Offset,
+                wing2: Offset,
+                lit: Boolean
+            ) {
+                val arrowColor = if (lit) ElectricCyan else Color(0xFFCBD5E1)
+                if (lit) {
+                    val haloCenter = Offset(
+                        stemStart.x + (tip.x - stemStart.x) * 0.80f,
+                        stemStart.y + (tip.y - stemStart.y) * 0.80f
+                    )
+                    drawCircle(
+                        color = ElectricCyan.copy(alpha = 0.24f),
+                        radius = haloRadius,
+                        center = haloCenter
+                    )
                 }
-                drawPath(p, color = if (lit) ElectricCyan else Color(0xFF94A3B8))
-            }
-            drawTriangle(Offset(cx, cy - chevDist - chevSize), Offset(cx - chevSize, cy - chevDist + chevSize * 0.5f), Offset(cx + chevSize, cy - chevDist + chevSize * 0.5f), dpadState.up)
-            drawTriangle(Offset(cx, cy + chevDist + chevSize), Offset(cx - chevSize, cy + chevDist - chevSize * 0.5f), Offset(cx + chevSize, cy + chevDist - chevSize * 0.5f), dpadState.down)
-            drawTriangle(Offset(cx - chevDist - chevSize, cy), Offset(cx - chevDist + chevSize * 0.5f, cy - chevSize), Offset(cx - chevDist + chevSize * 0.5f, cy + chevSize), dpadState.left)
-            drawTriangle(Offset(cx + chevDist + chevSize, cy), Offset(cx + chevDist - chevSize * 0.5f, cy - chevSize), Offset(cx + chevDist - chevSize * 0.5f, cy + chevSize), dpadState.right)
 
-            // Center pivot dimple
-            drawCircle(
-                color = Color(0xFF0F172A),
-                radius = armHalf * 0.45f,
-                center = Offset(cx, cy)
+                // Thin stem with rounded caps, fading smoothly to transparent toward the center
+                drawLine(
+                    brush = Brush.linearGradient(
+                        0.0f to arrowColor.copy(alpha = 0f),
+                        0.78f to arrowColor,
+                        1.0f to arrowColor,
+                        start = stemStart,
+                        end = tip
+                    ),
+                    start = stemStart,
+                    end = tip,
+                    strokeWidth = strokeWidth,
+                    cap = StrokeCap.Round
+                )
+
+                // Thin arrowhead chevron with rounded caps and rounded tip join
+                val headPath = Path().apply {
+                    moveTo(wing1.x, wing1.y)
+                    lineTo(tip.x, tip.y)
+                    lineTo(wing2.x, wing2.y)
+                }
+                drawPath(
+                    path = headPath,
+                    color = arrowColor,
+                    style = Stroke(
+                        width = strokeWidth,
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round
+                    )
+                )
+            }
+
+            // Up arrow
+            val upTip = Offset(cx, cy - tipDistY)
+            drawStemmedArrow(
+                stemStart = Offset(cx, cy - stemStartY),
+                tip = upTip,
+                wing1 = Offset(upTip.x - headWing, upTip.y + headBack),
+                wing2 = Offset(upTip.x + headWing, upTip.y + headBack),
+                lit = dpadState.up
             )
+
+            // Down arrow
+            val downTip = Offset(cx, cy + tipDistY)
+            drawStemmedArrow(
+                stemStart = Offset(cx, cy + stemStartY),
+                tip = downTip,
+                wing1 = Offset(downTip.x - headWing, downTip.y - headBack),
+                wing2 = Offset(downTip.x + headWing, downTip.y - headBack),
+                lit = dpadState.down
+            )
+
+            // Left arrow
+            val leftTip = Offset(cx - tipDistX, cy)
+            drawStemmedArrow(
+                stemStart = Offset(cx - stemStartX, cy),
+                tip = leftTip,
+                wing1 = Offset(leftTip.x + headBack, leftTip.y - headWing),
+                wing2 = Offset(leftTip.x + headBack, leftTip.y + headWing),
+                lit = dpadState.left
+            )
+
+            // Right arrow
+            val rightTip = Offset(cx + tipDistX, cy)
+            drawStemmedArrow(
+                stemStart = Offset(cx + stemStartX, cy),
+                tip = rightTip,
+                wing1 = Offset(rightTip.x - headBack, rightTip.y - headWing),
+                wing2 = Offset(rightTip.x - headBack, rightTip.y + headWing),
+                lit = dpadState.right
+            )
+
+            // Live flick puck feedback while touching
+            if (touching) {
+                val puckRadius = minDim * 0.055f
+                val puckCenter = Offset(
+                    cx + flickOffset.x * w * 0.24f,
+                    cy + flickOffset.y * h * 0.24f
+                )
+                if (hypot(flickOffset.x, flickOffset.y) > 0.05f) {
+                    drawLine(
+                        color = ElectricCyan.copy(alpha = 0.6f),
+                        start = Offset(cx, cy),
+                        end = puckCenter,
+                        strokeWidth = 2.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+                drawCircle(
+                    color = ElectricCyan.copy(alpha = if (dpadState != DPadDirectionState()) 0.78f else 0.40f),
+                    radius = puckRadius,
+                    center = puckCenter
+                )
+            }
         }
     }
 }
@@ -581,16 +734,19 @@ private fun DPadWidget(
 @Composable
 private fun TriggerDragAimWidget(
     controlType: ControlType,
-    scale: Float,
+    shape: Shape,
+    toggleable: Boolean,
+    engineActive: Boolean?,
     preset: ControllerPreset,
     interactive: Boolean,
     antiDeadzone: Float = TouchMouseLookFilter.DEFAULT_ANTI_DEADZONE,
     onUpdate: (pressed: Boolean, dragX: Float, dragY: Float) -> Unit,
     onTouchDown: () -> Unit
 ) {
-    var pressed by remember { mutableStateOf(false) }
+    var pressed by remember(controlType, toggleable) { mutableStateOf(false) }
     var dragVecX by remember { mutableFloatStateOf(0f) }
     var dragVecY by remember { mutableFloatStateOf(0f) }
+    var isHoldingPointer by remember { mutableStateOf(false) }
 
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -602,6 +758,16 @@ private fun TriggerDragAimWidget(
     val currentInvertY by rememberUpdatedState(preset.invertRightY)
     val currentAntiDeadzone by rememberUpdatedState(antiDeadzone)
     val currentOnUpdate by rememberUpdatedState(onUpdate)
+    val currentToggleable by rememberUpdatedState(toggleable)
+
+    LaunchedEffect(engineActive, toggleable) {
+        if (toggleable && engineActive != null) {
+            pressed = engineActive
+        } else if (!toggleable && !isHoldingPointer && pressed) {
+            pressed = false
+            currentOnUpdate(false, 0f, 0f)
+        }
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -610,7 +776,7 @@ private fun TriggerDragAimWidget(
     }
 
     val touchMod = if (interactive) {
-        Modifier.pointerInput(controlType, preset.triggerDragAimEnabled) {
+        Modifier.pointerInput(controlType, preset.triggerDragAimEnabled, toggleable) {
             awaitPointerEventScope {
                 var activePointerId: PointerId? = null
                 var downPos = Offset.Zero
@@ -618,6 +784,7 @@ private fun TriggerDragAimWidget(
                 var prevPos = Offset.Zero
                 var hasStartedDrag = false
                 var decayJob: Job? = null
+                var sessionLatchedState = false
 
                 while (true) {
                     val event = awaitPointerEvent(PointerEventPass.Main)
@@ -625,32 +792,36 @@ private fun TriggerDragAimWidget(
                         val down = event.changes.firstOrNull { it.pressed }
                         if (down != null) {
                             activePointerId = down.id
+                            isHoldingPointer = true
                             downPos = down.position
                             downUptimeMs = down.uptimeMillis
                             prevPos = down.position
                             hasStartedDrag = false
-                            pressed = true
+                            sessionLatchedState = if (currentToggleable) !pressed else true
+                            pressed = sessionLatchedState
                             dragVecX = 0f
                             dragVecY = 0f
                             onTouchDown()
-                            currentOnUpdate(true, 0f, 0f)
+                            currentOnUpdate(sessionLatchedState, 0f, 0f)
                             down.consume()
                         }
                     } else {
                         val change = event.changes.firstOrNull { it.id == activePointerId }
                         if (change == null || !change.pressed) {
                             activePointerId = null
+                            isHoldingPointer = false
                             hasStartedDrag = false
                             decayJob?.cancel()
                             decayJob = null
                             swipeFilter.reset()
-                            pressed = false
+                            val keepActive = if (currentToggleable) sessionLatchedState else false
+                            pressed = keepActive
                             dragVecX = 0f
                             dragVecY = 0f
-                            currentOnUpdate(false, 0f, 0f)
+                            currentOnUpdate(keepActive, 0f, 0f)
                             change?.consume()
                         } else {
-                            if (preset.triggerDragAimEnabled) {
+                            if (preset.triggerDragAimEnabled && (!currentToggleable || sessionLatchedState)) {
                                 if (!hasStartedDrag) {
                                     val fromDown = change.position - downPos
                                     val fromDownDp = hypot(fromDown.x, fromDown.y) / density.density
@@ -713,24 +884,26 @@ private fun TriggerDragAimWidget(
         }
     } else Modifier
 
-    val shape = RoundedCornerShape(14.dp)
-    Box(
+    val effectivePressed = if (toggleable && engineActive != null) engineActive else pressed
+
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .clip(shape)
             .background(
-                if (pressed) activeColor.copy(alpha = 0.34f)
+                if (effectivePressed) activeColor.copy(alpha = 0.34f)
                 else SlateSurfaceElevated.copy(alpha = 0.90f)
             )
             .border(
-                width = if (pressed) 2.dp else 1.5.dp,
-                color = if (pressed) activeColor else Color(0xFF475569),
+                width = if (effectivePressed) 2.dp else 1.5.dp,
+                color = if (effectivePressed) activeColor else Color(0xFF475569),
                 shape = shape
             )
             .then(touchMod),
         contentAlignment = Alignment.Center
     ) {
-        if (pressed && preset.triggerDragAimEnabled) {
+        val minDim = minOf(maxWidth, maxHeight)
+        if (effectivePressed && preset.triggerDragAimEnabled && isHoldingPointer) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val c = Offset(size.width / 2f, size.height / 2f)
                 val end = c + Offset(dragVecX * (size.width * 0.36f), dragVecY * (size.height * 0.36f))
@@ -746,20 +919,32 @@ private fun TriggerDragAimWidget(
         }
         GamepadControlIcon(
             controlType = controlType,
-            tint = if (pressed) Color.White else TextPrimary,
-            size = (34f * scale.coerceIn(0.75f, 1.45f)).dp
+            tint = if (effectivePressed) Color.White else TextPrimary,
+            size = minDim * 0.68f
         )
+        if (toggleable) {
+            ToggleLatchIndicator(
+                latched = effectivePressed,
+                activeColor = activeColor,
+                dotSize = (minDim * 0.13f).coerceIn(4.dp, 7.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = (minDim * 0.08f).coerceAtLeast(2.dp))
+            )
+        }
     }
 }
 
 @Composable
 private fun FaceButtonWidget(
     controlType: ControlType,
-    scale: Float,
+    shape: Shape,
+    toggleable: Boolean,
+    engineActive: Boolean?,
     interactive: Boolean,
     onPressChanged: (Boolean) -> Unit
 ) {
-    var pressed by remember { mutableStateOf(false) }
+    var pressed by remember(controlType, toggleable) { mutableStateOf(false) }
 
     val accentColor = when (controlType) {
         ControlType.BUTTON_A -> XboxGreen
@@ -769,8 +954,20 @@ private fun FaceButtonWidget(
         else -> ElectricCyan
     }
 
+    val currentToggleable by rememberUpdatedState(toggleable)
+    val currentOnPressChanged by rememberUpdatedState(onPressChanged)
+
+    LaunchedEffect(engineActive, toggleable) {
+        if (toggleable && engineActive != null) {
+            pressed = engineActive
+        } else if (!toggleable && pressed) {
+            pressed = false
+            currentOnPressChanged(false)
+        }
+    }
+
     val touchMod = if (interactive) {
-        Modifier.pointerInput(controlType) {
+        Modifier.pointerInput(controlType, toggleable) {
             awaitPointerEventScope {
                 var activePointerId: PointerId? = null
                 while (true) {
@@ -779,16 +976,24 @@ private fun FaceButtonWidget(
                         val down = event.changes.firstOrNull { it.pressed }
                         if (down != null) {
                             activePointerId = down.id
-                            pressed = true
-                            onPressChanged(true)
+                            if (currentToggleable) {
+                                val next = !pressed
+                                pressed = next
+                                currentOnPressChanged(next)
+                            } else {
+                                pressed = true
+                                currentOnPressChanged(true)
+                            }
                             down.consume()
                         }
                     } else {
                         val change = event.changes.firstOrNull { it.id == activePointerId }
                         if (change == null || !change.pressed) {
                             activePointerId = null
-                            pressed = false
-                            onPressChanged(false)
+                            if (!currentToggleable) {
+                                pressed = false
+                                currentOnPressChanged(false)
+                            }
                             change?.consume()
                         } else {
                             change.consume()
@@ -799,43 +1004,70 @@ private fun FaceButtonWidget(
         }
     } else Modifier
 
-    Box(
+    val effectivePressed = if (toggleable && engineActive != null) engineActive else pressed
+
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .clip(CircleShape)
+            .clip(shape)
             .background(
-                if (pressed) accentColor.copy(alpha = 0.45f)
+                if (effectivePressed) accentColor.copy(alpha = 0.45f)
                 else Color(0xFF141C2B).copy(alpha = 0.92f)
             )
             .border(
-                width = (if (pressed) 2.5f else 1.8f).dp,
-                color = if (pressed) accentColor else accentColor.copy(alpha = 0.78f),
-                shape = CircleShape
+                width = (if (effectivePressed) 2.5f else 1.8f).dp,
+                color = if (effectivePressed) accentColor else accentColor.copy(alpha = 0.78f),
+                shape = shape
             )
             .then(touchMod),
         contentAlignment = Alignment.Center
     ) {
+        val minDim = minOf(maxWidth, maxHeight)
         Text(
             text = controlType.shortLabel,
             fontFamily = ChakraPetchFontFamily,
             fontWeight = FontWeight.Bold,
-            fontSize = (18f * scale.coerceIn(0.75f, 1.45f)).sp,
-            color = if (pressed) Color.White else accentColor
+            fontSize = (minDim.value * 0.34f).sp,
+            color = if (effectivePressed) Color.White else accentColor
         )
+        if (toggleable) {
+            ToggleLatchIndicator(
+                latched = effectivePressed,
+                activeColor = accentColor,
+                dotSize = (minDim * 0.12f).coerceIn(4.dp, 7.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = (minDim * 0.08f).coerceAtLeast(2.dp))
+            )
+        }
     }
 }
 
 @Composable
 private fun CapsuleGamepadButton(
     controlType: ControlType,
-    scale: Float,
+    shape: Shape,
+    toggleable: Boolean,
+    engineActive: Boolean?,
     interactive: Boolean,
     onPressChanged: (Boolean) -> Unit
 ) {
-    var pressed by remember { mutableStateOf(false) }
+    var pressed by remember(controlType, toggleable) { mutableStateOf(false) }
+
+    val currentToggleable by rememberUpdatedState(toggleable)
+    val currentOnPressChanged by rememberUpdatedState(onPressChanged)
+
+    LaunchedEffect(engineActive, toggleable) {
+        if (toggleable && engineActive != null) {
+            pressed = engineActive
+        } else if (!toggleable && pressed) {
+            pressed = false
+            currentOnPressChanged(false)
+        }
+    }
 
     val touchMod = if (interactive) {
-        Modifier.pointerInput(controlType) {
+        Modifier.pointerInput(controlType, toggleable) {
             awaitPointerEventScope {
                 var activePointerId: PointerId? = null
                 while (true) {
@@ -844,16 +1076,24 @@ private fun CapsuleGamepadButton(
                         val down = event.changes.firstOrNull { it.pressed }
                         if (down != null) {
                             activePointerId = down.id
-                            pressed = true
-                            onPressChanged(true)
+                            if (currentToggleable) {
+                                val next = !pressed
+                                pressed = next
+                                currentOnPressChanged(next)
+                            } else {
+                                pressed = true
+                                currentOnPressChanged(true)
+                            }
                             down.consume()
                         }
                     } else {
                         val change = event.changes.firstOrNull { it.id == activePointerId }
                         if (change == null || !change.pressed) {
                             activePointerId = null
-                            pressed = false
-                            onPressChanged(false)
+                            if (!currentToggleable) {
+                                pressed = false
+                                currentOnPressChanged(false)
+                            }
                             change?.consume()
                         } else {
                             change.consume()
@@ -864,30 +1104,31 @@ private fun CapsuleGamepadButton(
         }
     } else Modifier
 
-    val shape = RoundedCornerShape(50)
-    val contentTint = if (pressed) Color.White else TextPrimary
-    Box(
+    val effectivePressed = if (toggleable && engineActive != null) engineActive else pressed
+    val contentTint = if (effectivePressed) Color.White else TextPrimary
+
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .clip(shape)
             .background(
-                if (pressed) ElectricCyan.copy(alpha = 0.35f)
+                if (effectivePressed) ElectricCyan.copy(alpha = 0.35f)
                 else SlateSurfaceElevated.copy(alpha = 0.92f)
             )
             .border(
-                width = (if (pressed) 2f else 1.4f).dp,
-                color = if (pressed) ElectricCyan else Color(0xFF475569),
+                width = (if (effectivePressed) 2f else 1.4f).dp,
+                color = if (effectivePressed) ElectricCyan else Color(0xFF475569),
                 shape = shape
             )
             .then(touchMod),
         contentAlignment = Alignment.Center
     ) {
-        val clampedScale = scale.coerceIn(0.75f, 1.35f)
+        val minDim = minOf(maxWidth, maxHeight)
         if (controlType.hasCustomIcon()) {
             val iconSize = when (controlType) {
-                ControlType.BUTTON_LB, ControlType.BUTTON_RB -> (32f * clampedScale).dp
-                ControlType.BUTTON_L3, ControlType.BUTTON_R3 -> (28f * clampedScale).dp
-                else -> (22f * clampedScale).dp
+                ControlType.BUTTON_LB, ControlType.BUTTON_RB -> minDim * 0.68f
+                ControlType.BUTTON_L3, ControlType.BUTTON_R3 -> minDim * 0.60f
+                else -> minDim * 0.54f
             }
             GamepadControlIcon(
                 controlType = controlType,
@@ -899,16 +1140,42 @@ private fun CapsuleGamepadButton(
                 text = controlType.shortLabel,
                 fontFamily = ChakraPetchFontFamily,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = (12f * clampedScale).sp,
+                fontSize = (minDim.value * 0.28f).sp,
                 color = contentTint
+            )
+        }
+        if (toggleable) {
+            ToggleLatchIndicator(
+                latched = effectivePressed,
+                activeColor = ElectricCyan,
+                dotSize = (minDim * 0.12f).coerceIn(4.dp, 6.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = (minDim * 0.08f).coerceAtLeast(2.dp))
             )
         }
     }
 }
 
 @Composable
+private fun ToggleLatchIndicator(
+    latched: Boolean,
+    activeColor: Color,
+    dotSize: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(dotSize)
+            .clip(CircleShape)
+            .background(if (latched) activeColor else Color.White.copy(alpha = 0.25f))
+            .border(0.75.dp, if (latched) Color.White else activeColor.copy(alpha = 0.7f), CircleShape)
+    )
+}
+
+@Composable
 private fun SettingsOverlayButton(
-    scale: Float,
+    shape: Shape,
     interactive: Boolean,
     onClick: () -> Unit
 ) {
@@ -944,23 +1211,24 @@ private fun SettingsOverlayButton(
         }
     } else Modifier
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .clip(CircleShape)
+            .clip(shape)
             .background(
                 if (pressed) ElectricCyan.copy(alpha = 0.45f)
                 else ObsidianBg.copy(alpha = 0.90f)
             )
-            .border(1.8.dp, ElectricCyan, CircleShape)
+            .border(1.8.dp, ElectricCyan, shape)
             .then(touchMod),
         contentAlignment = Alignment.Center
     ) {
+        val minDim = minOf(maxWidth, maxHeight)
         Icon(
             imageVector = Icons.Default.Settings,
             contentDescription = "OverPad Overlay Settings",
             tint = ElectricCyan,
-            modifier = Modifier.size((22f * scale.coerceIn(0.75f, 1.3f)).dp)
+            modifier = Modifier.size(minDim * 0.48f)
         )
     }
 }

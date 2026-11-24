@@ -112,7 +112,7 @@ fun ControllerPreset.toEntity(): PresetEntity = PresetEntity(
     updatedAt = System.currentTimeMillis()
 )
 
-class OperPadTypeConverters {
+class OverPadTypeConverters {
     @TypeConverter
     fun fromStringList(value: List<ControlPlacement>): String = PresetJsonMapper.toJson(value)
 

@@ -3,6 +3,7 @@ package com.example.overlay
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
 import android.graphics.PixelFormat
@@ -11,6 +12,7 @@ import android.os.IBinder
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.collectAsState
@@ -19,7 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.app.ServiceCompat
 import com.example.MainActivity
-import com.example.OperPadApplication
+import com.example.OverPadApplication
 import com.example.model.ControlPlacement
 import com.example.model.ControlType
 import com.example.model.ControllerPreset
@@ -27,47 +29,55 @@ import com.example.model.DefaultPresets
 import com.example.ui.gamepad.FpsRightLookZoneSurface
 import com.example.ui.gamepad.GamepadControlNode
 import com.example.ui.gamepad.LeftMoveZoneSurface
-import com.example.ui.theme.OperPadTheme
+import com.example.ui.theme.OverPadTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-class OperPadOverlayService : Service() {
+class OverPadOverlayService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var windowManager: WindowManager
-    private lateinit var app: OperPadApplication
+    private lateinit var app: OverPadApplication
     private val lifecycleOwner = OverlayLifecycleOwner()
 
     private val activeControlViews = mutableListOf<ComposeView>()
+    private var orientationAnchorView: View? = null
     private var leftMoveZoneView: ComposeView? = null
     private var fpsZoneView: ComposeView? = null
     private var hudOverlayView: ComposeView? = null
     private var editOverlayView: ComposeView? = null
 
     private var usageMonitorJob: Job? = null
+    private var orientationWaitJob: Job? = null
+    private var orientationWaitTimedOut = false
     private var lastRenderedSignature: String? = null
+    private var lastHudWindowSize: Pair<Int, Int>? = null
+    private var lastEditWindowSize: Pair<Int, Int>? = null
     private var manualOverridePackage: String? = null
     private var cachedPresets: List<ControllerPreset> = DefaultPresets.all
+    private var pendingPresetSave: ControllerPreset? = null
+    private var presetSaveJob: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
-        app = application as OperPadApplication
+        app = application as OverPadApplication
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         lifecycleOwner.onCreate()
 
         startForegroundCompat(app.overlayState.value.activePreset.name)
 
-        if (!Settings.canDrawOverlays(this)) {
+        if (!Settings.canDrawOverlays(this) && !app.isAppInMultiWindow.value) {
             stopSelf()
             return
         }
@@ -80,10 +90,14 @@ class OperPadOverlayService : Service() {
             app.repository.presetsFlow.collect { list ->
                 if (list.isNotEmpty()) {
                     cachedPresets = list
-                    val currentId = app.overlayState.value.activePreset.id
-                    val updated = list.firstOrNull { it.id == currentId }
-                    if (updated != null && updated != app.overlayState.value.activePreset) {
-                        app.updateOverlayState { it.copy(activePreset = updated) }
+                    val state = app.overlayState.value
+                    val hasPendingSave = pendingPresetSave != null || presetSaveJob?.isActive == true
+                    if (!hasPendingSave && !state.isOverlayEditMode && !state.isOverlaySettingsOpen) {
+                        val currentId = state.activePreset.id
+                        val updated = list.firstOrNull { it.id == currentId }
+                        if (updated != null && updated != state.activePreset) {
+                            app.updateOverlayState { it.copy(activePreset = updated) }
+                        }
                     }
                 }
             }
@@ -91,15 +105,22 @@ class OperPadOverlayService : Service() {
 
         serviceScope.launch {
             var lastPresetName: String? = null
-            app.overlayState.collect { state ->
-                syncOverlayWindows(state.activePreset, state.isOverlaySettingsOpen, state.isOverlayEditMode)
+            combine(app.overlayState, app.isAppInMultiWindow) { state, inMultiWindow ->
+                state to inMultiWindow
+            }.collect { (state, inMultiWindow) ->
+                syncOverlayWindows(
+                    preset = state.activePreset,
+                    isSettingsOpen = state.isOverlaySettingsOpen,
+                    isEditMode = state.isOverlayEditMode,
+                    isInMultiWindow = inMultiWindow
+                )
                 if (state.isRunning && state.activePreset.name != lastPresetName) {
                     lastPresetName = state.activePreset.name
                     OverlayNotificationHelper.updateActiveNotificationIfPossible(
-                        this@OperPadOverlayService,
+                        this@OverPadOverlayService,
                         state.activePreset.name
                     )
-                    OverlayNotificationHelper.requestTileUpdate(this@OperPadOverlayService)
+                    OverlayNotificationHelper.requestTileUpdate(this@OverPadOverlayService)
                 }
             }
         }
@@ -114,20 +135,36 @@ class OperPadOverlayService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_START -> {
-                if (!Settings.canDrawOverlays(this)) {
+                if (!Settings.canDrawOverlays(this) && !app.isAppInMultiWindow.value) {
                     stopSelf()
                     return START_NOT_STICKY
                 }
                 app.shizukuBridge.refreshStatusAndAutoConnect()
+                orientationWaitTimedOut = false
+                orientationWaitJob?.cancel()
                 lastRenderedSignature = null
                 val state = app.overlayState.value
-                syncOverlayWindows(state.activePreset, state.isOverlaySettingsOpen, state.isOverlayEditMode)
+                syncOverlayWindows(
+                    preset = state.activePreset,
+                    isSettingsOpen = state.isOverlaySettingsOpen,
+                    isEditMode = state.isOverlayEditMode,
+                    isInMultiWindow = app.isAppInMultiWindow.value
+                )
                 OverlayNotificationHelper.requestTileUpdate(this)
             }
             ACTION_REFRESH -> {
+                if (!Settings.canDrawOverlays(this) && !app.isAppInMultiWindow.value) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 lastRenderedSignature = null
                 val state = app.overlayState.value
-                syncOverlayWindows(state.activePreset, state.isOverlaySettingsOpen, state.isOverlayEditMode)
+                syncOverlayWindows(
+                    preset = state.activePreset,
+                    isSettingsOpen = state.isOverlaySettingsOpen,
+                    isEditMode = state.isOverlayEditMode,
+                    isInMultiWindow = app.isAppInMultiWindow.value
+                )
             }
         }
         return START_STICKY
@@ -135,14 +172,22 @@ class OperPadOverlayService : Service() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        orientationWaitJob?.cancel()
+        orientationWaitJob = null
         lastRenderedSignature = null
         val state = app.overlayState.value
-        syncOverlayWindows(state.activePreset, state.isOverlaySettingsOpen, state.isOverlayEditMode)
+        syncOverlayWindows(
+            preset = state.activePreset,
+            isSettingsOpen = state.isOverlaySettingsOpen,
+            isEditMode = state.isOverlayEditMode,
+            isInMultiWindow = app.isAppInMultiWindow.value
+        )
     }
 
     override fun onDestroy() {
         usageMonitorJob?.cancel()
-        clearAllOverlayViews()
+        orientationWaitJob?.cancel()
+        clearAllOverlayViews(removeOrientationAnchor = true)
         app.xInputEngine.resetAll()
         app.shizukuBridge.setOverlayActive(false)
         app.updateOverlayState {
@@ -173,7 +218,7 @@ class OperPadOverlayService : Service() {
                     if (!currentPkg.isNullOrBlank() && currentPkg != packageName && currentPkg != lastPkg) {
                         manualOverridePackage = null
                         val label = app.foregroundAppMonitor.resolveAppLabel(currentPkg)
-                        val binding = app.database.operPadDao().getBindingForPackage(currentPkg)
+                        val binding = app.database.overPadDao().getBindingForPackage(currentPkg)
                         val targetPresetId = binding?.presetId ?: settings.defaultPresetId
                         val resolvedPreset = cachedPresets.firstOrNull { it.id == targetPresetId }
                             ?: app.overlayState.value.activePreset
@@ -196,53 +241,118 @@ class OperPadOverlayService : Service() {
     private fun syncOverlayWindows(
         preset: ControllerPreset,
         isSettingsOpen: Boolean,
-        isEditMode: Boolean
+        isEditMode: Boolean,
+        isInMultiWindow: Boolean = app.isAppInMultiWindow.value
     ) {
+        if (isInMultiWindow) {
+            orientationWaitJob?.cancel()
+            orientationWaitJob = null
+            orientationWaitTimedOut = false
+            lastRenderedSignature = null
+            clearAllOverlayViews(removeOrientationAnchor = true)
+            return
+        }
+
         if (!Settings.canDrawOverlays(this)) return
 
+        ensureLandscapeOrientationAnchor()
+
         val (screenW, screenH) = getScreenDimensionsPx()
+        if (screenW < screenH && !orientationWaitTimedOut) {
+            clearAllOverlayViews(removeOrientationAnchor = false)
+            lastRenderedSignature = null
+            if (orientationWaitJob?.isActive != true) {
+                orientationWaitJob = serviceScope.launch {
+                    delay(350L)
+                    orientationWaitTimedOut = true
+                    lastRenderedSignature = null
+                    val current = app.overlayState.value
+                    syncOverlayWindows(
+                        preset = current.activePreset,
+                        isSettingsOpen = current.isOverlaySettingsOpen,
+                        isEditMode = current.isOverlayEditMode,
+                        isInMultiWindow = app.isAppInMultiWindow.value
+                    )
+                }
+            }
+            return
+        }
+
+        if (isEditMode) {
+            val targetSize = screenW to screenH
+            if (editOverlayView != null && lastEditWindowSize == targetSize) {
+                return
+            }
+            lastRenderedSignature = null
+            clearAllOverlayViews(removeOrientationAnchor = false)
+            attachEditOverlay(screenW, screenH)
+            return
+        }
+
+        if (isSettingsOpen) {
+            val targetSize = screenW to screenH
+            if (hudOverlayView != null && lastHudWindowSize == targetSize) {
+                return
+            }
+            lastRenderedSignature = null
+            clearAllOverlayViews(removeOrientationAnchor = false)
+            attachSettingsHudWindow(screenW, screenH)
+            return
+        }
+
         val signature = buildString {
             append(preset.id).append('|')
             append(preset.opacity).append('|')
+            append(preset.gridRows).append('|')
+            append(preset.snapToGrid).append('|')
             append(preset.leftMoveZoneEnabled).append('|')
             append(preset.fpsRightZoneEnabled).append('|')
             append(preset.triggerDragAimEnabled).append('|')
             append(screenW).append('x').append(screenH).append('|')
-            append(isSettingsOpen).append('|').append(isEditMode).append('|')
             preset.controls.forEach {
                 append(it.type.name).append(':').append(it.xFraction).append(',').append(it.yFraction)
-                    .append(',').append(it.scale).append(',').append(it.visible).append(';')
+                    .append(',').append(it.scale).append(',').append(it.visible)
+                    .append(',').append(it.resolvedShape().name).append(',').append(it.toggleable).append(';')
             }
         }
 
         if (signature == lastRenderedSignature) return
         lastRenderedSignature = signature
 
-        clearAllOverlayViews()
-
-        if (isEditMode) {
-            attachEditOverlay(screenW, screenH)
-            return
-        }
+        clearAllOverlayViews(removeOrientationAnchor = false)
 
         // 1. Optional Left-Side Tap-Anywhere Move Zone & Right-Side FPS Look Zone behind controls
-        if (preset.leftMoveZoneEnabled && !isSettingsOpen) {
+        if (preset.leftMoveZoneEnabled) {
             attachLeftMoveZoneWindow(preset, screenW, screenH)
         }
-        if (preset.fpsRightZoneEnabled && !isSettingsOpen) {
+        if (preset.fpsRightZoneEnabled) {
             attachFpsLookZoneWindow(preset, screenW, screenH)
         }
 
         // 2. Individual visible control windows (allows touches on empty space to pass through to underlying app)
-        if (!isSettingsOpen) {
-            preset.controls.filter { it.visible || !it.type.canHide }.forEach { placement ->
-                attachControlWindow(placement, preset, screenW, screenH)
-            }
+        preset.controls.filter { it.visible || !it.type.canHide }.forEach { placement ->
+            attachControlWindow(placement, preset, screenW, screenH)
         }
+    }
 
-        // 3. Optional Quick Settings HUD
-        if (isSettingsOpen) {
-            attachSettingsHudWindow(screenW, screenH)
+    private fun ensureLandscapeOrientationAnchor() {
+        if (orientationAnchorView != null) return
+        val params = createOverlayLayoutParams(
+            width = 1,
+            height = 1,
+            x = 0,
+            y = 0
+        ).apply {
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            screenOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        }
+        val anchor = View(this)
+        runCatching {
+            windowManager.addView(anchor, params)
+            orientationAnchorView = anchor
         }
     }
 
@@ -258,7 +368,7 @@ class OperPadOverlayService : Service() {
             lifecycleOwner.attachToView(this)
             setContent {
                 val settings by app.repository.userSettingsFlow.collectAsState(initial = null)
-                OperPadTheme(darkTheme = true) {
+                OverPadTheme(darkTheme = true) {
                     LeftMoveZoneSurface(
                         preset = preset,
                         engine = app.xInputEngine,
@@ -287,7 +397,7 @@ class OperPadOverlayService : Service() {
             lifecycleOwner.attachToView(this)
             setContent {
                 val settings by app.repository.userSettingsFlow.collectAsState(initial = null)
-                OperPadTheme(darkTheme = true) {
+                OverPadTheme(darkTheme = true) {
                     FpsRightLookZoneSurface(
                         preset = preset,
                         engine = app.xInputEngine,
@@ -312,8 +422,8 @@ class OperPadOverlayService : Service() {
         screenH: Int
     ) {
         val density = resources.displayMetrics.density
-        val widthPx = (placement.type.baseWidthDp * placement.scale * density).roundToInt().coerceAtLeast(1)
-        val heightPx = (placement.type.baseHeightDp * placement.scale * density).roundToInt().coerceAtLeast(1)
+        val widthPx = (placement.effectiveWidthDp() * density).roundToInt().coerceAtLeast(1)
+        val heightPx = (placement.effectiveHeightDp() * density).roundToInt().coerceAtLeast(1)
         val xPos = (placement.xFraction * screenW - widthPx / 2f).roundToInt()
         val yPos = (placement.yFraction * screenH - heightPx / 2f).roundToInt()
 
@@ -328,7 +438,7 @@ class OperPadOverlayService : Service() {
             lifecycleOwner.attachToView(this)
             setContent {
                 val settings by app.repository.userSettingsFlow.collectAsState(initial = null)
-                OperPadTheme(darkTheme = true) {
+                OverPadTheme(darkTheme = true) {
                     GamepadControlNode(
                         placement = placement,
                         preset = preset,
@@ -386,10 +496,7 @@ class OperPadOverlayService : Service() {
                             app.updateOverlayState { it.copy(autoMatchedByApp = true) }
                         }
                     },
-                    onUpdatePreset = { updated ->
-                        app.updateOverlayState { it.copy(activePreset = updated) }
-                        serviceScope.launch { app.repository.savePreset(updated) }
-                    },
+                    onUpdatePreset = ::persistPresetFromOverlay,
                     onEnterEditMode = {
                         app.updateOverlayState {
                             it.copy(isOverlaySettingsOpen = false, isOverlayEditMode = true)
@@ -397,7 +504,7 @@ class OperPadOverlayService : Service() {
                     },
                     onOpenMainApp = {
                         app.updateOverlayState { it.copy(isOverlaySettingsOpen = false) }
-                        val intent = Intent(this@OperPadOverlayService, MainActivity::class.java).apply {
+                        val intent = Intent(this@OverPadOverlayService, MainActivity::class.java).apply {
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                         }
                         startActivity(intent)
@@ -412,6 +519,7 @@ class OperPadOverlayService : Service() {
         runCatching {
             windowManager.addView(view, params)
             hudOverlayView = view
+            lastHudWindowSize = screenW to screenH
         }
     }
 
@@ -428,10 +536,7 @@ class OperPadOverlayService : Service() {
                 val runtime by app.overlayState.collectAsState()
                 OverlayGridEditorScreen(
                     preset = runtime.activePreset,
-                    onUpdatePreset = { updated ->
-                        app.updateOverlayState { it.copy(activePreset = updated) }
-                        serviceScope.launch { app.repository.savePreset(updated) }
-                    },
+                    onUpdatePreset = ::persistPresetFromOverlay,
                     onFinishEdit = {
                         app.updateOverlayState { it.copy(isOverlayEditMode = false) }
                     }
@@ -441,10 +546,25 @@ class OperPadOverlayService : Service() {
         runCatching {
             windowManager.addView(view, params)
             editOverlayView = view
+            lastEditWindowSize = screenW to screenH
         }
     }
 
-    private fun clearAllOverlayViews() {
+    private fun persistPresetFromOverlay(updated: ControllerPreset) {
+        app.updateOverlayState { it.copy(activePreset = updated) }
+        pendingPresetSave = updated
+        if (presetSaveJob?.isActive != true) {
+            presetSaveJob = serviceScope.launch {
+                while (isActive) {
+                    val next = pendingPresetSave ?: break
+                    pendingPresetSave = null
+                    app.repository.savePreset(next)
+                }
+            }
+        }
+    }
+
+    private fun clearAllOverlayViews(removeOrientationAnchor: Boolean = true) {
         activeControlViews.forEach { runCatching { windowManager.removeViewImmediate(it) } }
         activeControlViews.clear()
         leftMoveZoneView?.let { runCatching { windowManager.removeViewImmediate(it) } }
@@ -453,8 +573,14 @@ class OperPadOverlayService : Service() {
         fpsZoneView = null
         hudOverlayView?.let { runCatching { windowManager.removeViewImmediate(it) } }
         hudOverlayView = null
+        lastHudWindowSize = null
         editOverlayView?.let { runCatching { windowManager.removeViewImmediate(it) } }
         editOverlayView = null
+        lastEditWindowSize = null
+        if (removeOrientationAnchor) {
+            orientationAnchorView?.let { runCatching { windowManager.removeViewImmediate(it) } }
+            orientationAnchorView = null
+        }
     }
 
     private fun createOverlayLayoutParams(
@@ -480,6 +606,7 @@ class OperPadOverlayService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
+            screenOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             this.x = x
             this.y = y
         }
@@ -511,12 +638,12 @@ class OperPadOverlayService : Service() {
     }
 
     companion object {
-        const val ACTION_START = "com.example.operpad.START_OVERLAY"
-        const val ACTION_STOP = "com.example.operpad.STOP_OVERLAY"
-        const val ACTION_REFRESH = "com.example.operpad.REFRESH_OVERLAY"
+        const val ACTION_START = "com.example.overpad.START_OVERLAY"
+        const val ACTION_STOP = "com.example.overpad.STOP_OVERLAY"
+        const val ACTION_REFRESH = "com.example.overpad.REFRESH_OVERLAY"
 
         fun start(context: Context) {
-            val intent = Intent(context, OperPadOverlayService::class.java).apply {
+            val intent = Intent(context, OverPadOverlayService::class.java).apply {
                 action = ACTION_START
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -527,7 +654,14 @@ class OperPadOverlayService : Service() {
         }
 
         fun stop(context: Context) {
-            context.stopService(Intent(context, OperPadOverlayService::class.java))
+            context.stopService(Intent(context, OverPadOverlayService::class.java))
+        }
+
+        fun refresh(context: Context) {
+            val intent = Intent(context, OverPadOverlayService::class.java).apply {
+                action = ACTION_REFRESH
+            }
+            runCatching { context.startService(intent) }
         }
     }
 }

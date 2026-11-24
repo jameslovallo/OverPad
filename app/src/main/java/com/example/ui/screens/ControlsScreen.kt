@@ -3,6 +3,8 @@ package com.example.ui.screens
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -44,6 +46,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.outlined.Layers
@@ -57,6 +60,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -98,16 +102,25 @@ fun ControlsScreen(
     presets: List<ControllerPreset>,
     shizukuStatus: ShizukuStatus,
     hasOverlayPermission: Boolean,
+    isAppInMultiWindow: Boolean = false,
     onStartOverlay: () -> Unit,
     onStopOverlay: () -> Unit,
     onSelectPreset: (ControllerPreset) -> Unit,
     onCreatePreset: (basePreset: ControllerPreset, name: String) -> Unit,
-    onEditCurrentPreset: (ControllerPreset) -> Unit
+    onEditCurrentPreset: (ControllerPreset) -> Unit,
+    onImportProfiles: (Uri) -> Unit = {}
 ) {
     val context = LocalContext.current
     var showPresetPicker by remember { mutableStateOf(false) }
     var showAddPresetDialog by remember { mutableStateOf(false) }
     var newPresetName by remember { mutableStateOf("") }
+    val importProfilesLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            onImportProfiles(uri)
+        }
+    }
 
     if (showPresetPicker) {
         AlertDialog(
@@ -178,19 +191,37 @@ fun ControlsScreen(
                         }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    FilledTonalButton(
-                        onClick = {
-                            showPresetPicker = false
-                            newPresetName = "${overlayState.activePreset.name} Custom"
-                            showAddPresetDialog = true
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("add_preset_from_picker_button")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Add Preset")
+                        FilledTonalButton(
+                            onClick = {
+                                showPresetPicker = false
+                                newPresetName = "${overlayState.activePreset.name} Custom"
+                                showAddPresetDialog = true
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("add_preset_from_picker_button")
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Add")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                showPresetPicker = false
+                                importProfilesLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("import_preset_from_picker_button")
+                        ) {
+                            Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Import")
+                        }
                     }
                 }
             },
@@ -236,120 +267,229 @@ fun ControlsScreen(
         )
     }
 
+    val canActivateOverlay = hasOverlayPermission || isAppInMultiWindow
+
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val minHeight = maxHeight
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = minHeight)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterVertically),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            XboxControllerOutlineHero(
-                isOverlayRunning = overlayState.isRunning,
-                isHardwareSpoofed = shizukuStatus.isHardwareSpoofed,
-                hasOverlayPermission = hasOverlayPermission,
-                onToggleOverlay = {
-                    if (!hasOverlayPermission) {
-                        val intent = Intent(
-                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            Uri.parse("package:${context.packageName}")
-                        )
-                        context.startActivity(intent)
-                    } else if (overlayState.isRunning) {
-                        onStopOverlay()
-                    } else {
-                        onStartOverlay()
-                    }
-                }
-            )
+        val isCompactLandscape = maxWidth >= 520.dp && maxHeight < 460.dp
+        val isCompactHeight = maxHeight < 520.dp
+        val heroMaxWidth = when {
+            isCompactLandscape -> (maxHeight * 1.15f).coerceIn(190.dp, 310.dp)
+            isCompactHeight -> (maxHeight * 0.68f).coerceIn(190.dp, 320.dp)
+            else -> 360.dp
+        }
 
-            // Minimal status pill
-            val statusColor = when {
-                !hasOverlayPermission -> MaterialTheme.colorScheme.tertiary
-                overlayState.isRunning && shizukuStatus.isHardwareSpoofed -> MaterialTheme.colorScheme.secondary
-                overlayState.isRunning -> MaterialTheme.colorScheme.primary
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
-            }
-            val statusLabel = when {
-                !hasOverlayPermission -> "Grant Overlay"
-                overlayState.isRunning && shizukuStatus.isHardwareSpoofed -> "Connected"
-                overlayState.isRunning -> "Active"
-                else -> "Disconnected"
-            }
-            Surface(
-                shape = RoundedCornerShape(50),
-                color = statusColor.copy(alpha = if (overlayState.isRunning) 0.18f else 0.10f),
-                border = BorderStroke(1.dp, statusColor.copy(alpha = if (overlayState.isRunning) 0.55f else 0.25f))
-            ) {
-                Text(
-                    text = statusLabel,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = statusColor,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+        val handleToggleOverlay = {
+            if (!canActivateOverlay) {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:${context.packageName}")
                 )
+                context.startActivity(intent)
+            } else if (overlayState.isRunning) {
+                onStopOverlay()
+            } else {
+                onStartOverlay()
             }
+        }
 
-            // Centered Expressive Connected Button Group: [ Preset Picker ▾ ] [ ✎ ]
+        val statusColor = when {
+            !canActivateOverlay -> MaterialTheme.colorScheme.tertiary
+            overlayState.isRunning && shizukuStatus.isHardwareSpoofed -> MaterialTheme.colorScheme.secondary
+            overlayState.isRunning -> MaterialTheme.colorScheme.primary
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
+        }
+        val statusLabel = when {
+            !canActivateOverlay -> "Grant Overlay"
+            overlayState.isRunning && shizukuStatus.isHardwareSpoofed -> "Connected"
+            overlayState.isRunning -> "Active"
+            else -> "Disconnected"
+        }
+
+        if (isCompactLandscape) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                FilledTonalButton(
-                    onClick = { showPresetPicker = true },
-                    shape = RoundedCornerShape(
-                        topStart = 26.dp,
-                        bottomStart = 26.dp,
-                        topEnd = 8.dp,
-                        bottomEnd = 8.dp
-                    ),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                    ),
-                    modifier = Modifier
-                        .height(52.dp)
-                        .widthIn(min = 180.dp, max = 260.dp)
-                        .testTag("preset_picker_button")
+                XboxControllerOutlineHero(
+                    isOverlayRunning = overlayState.isRunning,
+                    isHardwareSpoofed = shizukuStatus.isHardwareSpoofed,
+                    hasOverlayPermission = canActivateOverlay,
+                    maxHeroWidth = heroMaxWidth,
+                    onToggleOverlay = handleToggleOverlay
+                )
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = statusColor.copy(alpha = if (overlayState.isRunning) 0.18f else 0.10f),
+                        border = BorderStroke(1.dp, statusColor.copy(alpha = if (overlayState.isRunning) 0.55f else 0.25f))
+                    ) {
+                        Text(
+                            text = statusLabel,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = statusColor,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                        )
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        FilledTonalButton(
+                            onClick = { showPresetPicker = true },
+                            shape = RoundedCornerShape(
+                                topStart = 26.dp,
+                                bottomStart = 26.dp,
+                                topEnd = 8.dp,
+                                bottomEnd = 8.dp
+                            ),
+                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            ),
+                            modifier = Modifier
+                                .height(52.dp)
+                                .widthIn(min = 160.dp, max = 240.dp)
+                                .testTag("preset_picker_button")
+                        ) {
+                            Text(
+                                text = overlayState.activePreset.name,
+                                style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Choose preset",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        FilledTonalIconButton(
+                            onClick = { onEditCurrentPreset(overlayState.activePreset) },
+                            shape = RoundedCornerShape(
+                                topStart = 8.dp,
+                                bottomStart = 8.dp,
+                                topEnd = 26.dp,
+                                bottomEnd = 26.dp
+                            ),
+                            colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            ),
+                            modifier = Modifier
+                                .size(52.dp)
+                                .testTag("edit_active_preset_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit current layout"
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = minHeight)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 24.dp, vertical = if (isCompactHeight) 12.dp else 20.dp),
+                verticalArrangement = Arrangement.spacedBy(if (isCompactHeight) 16.dp else 28.dp, Alignment.CenterVertically),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                XboxControllerOutlineHero(
+                    isOverlayRunning = overlayState.isRunning,
+                    isHardwareSpoofed = shizukuStatus.isHardwareSpoofed,
+                    hasOverlayPermission = canActivateOverlay,
+                    maxHeroWidth = heroMaxWidth,
+                    onToggleOverlay = handleToggleOverlay
+                )
+
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = statusColor.copy(alpha = if (overlayState.isRunning) 0.18f else 0.10f),
+                    border = BorderStroke(1.dp, statusColor.copy(alpha = if (overlayState.isRunning) 0.55f else 0.25f))
                 ) {
                     Text(
-                        text = overlayState.activePreset.name,
+                        text = statusLabel,
                         style = MaterialTheme.typography.labelLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Choose preset",
-                        modifier = Modifier.size(20.dp)
+                        color = statusColor,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                     )
                 }
 
-                FilledTonalIconButton(
-                    onClick = { onEditCurrentPreset(overlayState.activePreset) },
-                    shape = RoundedCornerShape(
-                        topStart = 8.dp,
-                        bottomStart = 8.dp,
-                        topEnd = 26.dp,
-                        bottomEnd = 26.dp
-                    ),
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    ),
-                    modifier = Modifier
-                        .size(52.dp)
-                        .testTag("edit_active_preset_button")
+                // Centered Expressive Connected Button Group: [ Preset Picker ▾ ] [ ✎ ]
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Edit current layout"
-                    )
+                    FilledTonalButton(
+                        onClick = { showPresetPicker = true },
+                        shape = RoundedCornerShape(
+                            topStart = 26.dp,
+                            bottomStart = 26.dp,
+                            topEnd = 8.dp,
+                            bottomEnd = 8.dp
+                        ),
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        ),
+                        modifier = Modifier
+                            .height(52.dp)
+                            .widthIn(min = 180.dp, max = 260.dp)
+                            .testTag("preset_picker_button")
+                    ) {
+                        Text(
+                            text = overlayState.activePreset.name,
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Choose preset",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    FilledTonalIconButton(
+                        onClick = { onEditCurrentPreset(overlayState.activePreset) },
+                        shape = RoundedCornerShape(
+                            topStart = 8.dp,
+                            bottomStart = 8.dp,
+                            topEnd = 26.dp,
+                            bottomEnd = 26.dp
+                        ),
+                        colors = IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        ),
+                        modifier = Modifier
+                            .size(52.dp)
+                            .testTag("edit_active_preset_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit current layout"
+                        )
+                    }
                 }
             }
         }
@@ -361,6 +501,7 @@ private fun XboxControllerOutlineHero(
     isOverlayRunning: Boolean,
     isHardwareSpoofed: Boolean,
     hasOverlayPermission: Boolean,
+    maxHeroWidth: androidx.compose.ui.unit.Dp = 360.dp,
     onToggleOverlay: () -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
@@ -447,7 +588,7 @@ private fun XboxControllerOutlineHero(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .widthIn(max = 360.dp)
+            .widthIn(max = maxHeroWidth)
             .aspectRatio(SVG_VIEW_WIDTH / SVG_VIEW_HEIGHT),
         contentAlignment = Alignment.Center
     ) {

@@ -26,7 +26,7 @@ val JetBrainsMonoFontFamily = FontFamily(
     Font(R.font.jetbrains_mono, FontWeight.Medium)
 )
 
-val OperPadTypography = Typography(
+val OverPadTypography = Typography(
     displaySmall = TextStyle(
         fontFamily = ChakraPetchFontFamily,
         fontWeight = FontWeight.Bold,

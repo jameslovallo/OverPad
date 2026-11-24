@@ -14,9 +14,9 @@ import com.example.xinput.TouchMouseLookFilter
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-private val Context.operPadDataStore: DataStore<Preferences> by preferencesDataStore(name = "operpad_prefs")
+private val Context.overPadDataStore: DataStore<Preferences> by preferencesDataStore(name = "operpad_prefs")
 
-data class OperPadUserSettings(
+data class OverPadUserSettings(
     val defaultPresetId: String = DefaultPresets.ID_FPS_PRO,
     val autoSwitchByAppUsage: Boolean = true,
     val hapticFeedbackEnabled: Boolean = true,
@@ -28,7 +28,7 @@ data class OperPadUserSettings(
     val notificationQuickActionEnabled: Boolean = true
 )
 
-class OperPadPreferences(private val context: Context) {
+class OverPadPreferences(private val context: Context) {
     private object Keys {
         val DEFAULT_PRESET_ID = stringPreferencesKey("default_preset_id")
         val AUTO_SWITCH_USAGE = booleanPreferencesKey("auto_switch_usage")
@@ -41,8 +41,8 @@ class OperPadPreferences(private val context: Context) {
         val NOTIFICATION_QUICK_ACTION = booleanPreferencesKey("notification_quick_action")
     }
 
-    val settingsFlow: Flow<OperPadUserSettings> = context.operPadDataStore.data.map { prefs ->
-        OperPadUserSettings(
+    val settingsFlow: Flow<OverPadUserSettings> = context.overPadDataStore.data.map { prefs ->
+        OverPadUserSettings(
             defaultPresetId = prefs[Keys.DEFAULT_PRESET_ID] ?: DefaultPresets.ID_FPS_PRO,
             autoSwitchByAppUsage = prefs[Keys.AUTO_SWITCH_USAGE] ?: true,
             hapticFeedbackEnabled = prefs[Keys.HAPTIC_FEEDBACK] ?: true,
@@ -57,19 +57,19 @@ class OperPadPreferences(private val context: Context) {
     }
 
     suspend fun setDefaultPresetId(id: String) {
-        context.operPadDataStore.edit { it[Keys.DEFAULT_PRESET_ID] = id }
+        context.overPadDataStore.edit { it[Keys.DEFAULT_PRESET_ID] = id }
     }
 
     suspend fun setAutoSwitchByAppUsage(enabled: Boolean) {
-        context.operPadDataStore.edit { it[Keys.AUTO_SWITCH_USAGE] = enabled }
+        context.overPadDataStore.edit { it[Keys.AUTO_SWITCH_USAGE] = enabled }
     }
 
     suspend fun setHapticFeedback(enabled: Boolean) {
-        context.operPadDataStore.edit { it[Keys.HAPTIC_FEEDBACK] = enabled }
+        context.overPadDataStore.edit { it[Keys.HAPTIC_FEEDBACK] = enabled }
     }
 
     suspend fun setUdpBridge(enabled: Boolean, host: String, port: Int) {
-        context.operPadDataStore.edit {
+        context.overPadDataStore.edit {
             it[Keys.UDP_BRIDGE_ENABLED] = enabled
             it[Keys.UDP_HOST] = host.ifBlank { "127.0.0.1" }
             it[Keys.UDP_PORT] = port.coerceIn(1024, 65535)
@@ -77,11 +77,11 @@ class OperPadPreferences(private val context: Context) {
     }
 
     suspend fun setOnboardingCompleted(completed: Boolean) {
-        context.operPadDataStore.edit { it[Keys.ONBOARDING_COMPLETED] = completed }
+        context.overPadDataStore.edit { it[Keys.ONBOARDING_COMPLETED] = completed }
     }
 
     suspend fun setFpsAntiDeadzone(boost: Float) {
-        context.operPadDataStore.edit {
+        context.overPadDataStore.edit {
             it[Keys.FPS_ANTI_DEADZONE] = boost.coerceIn(
                 TouchMouseLookFilter.MIN_ANTI_DEADZONE,
                 TouchMouseLookFilter.MAX_ANTI_DEADZONE
@@ -90,6 +90,6 @@ class OperPadPreferences(private val context: Context) {
     }
 
     suspend fun setNotificationQuickActionEnabled(enabled: Boolean) {
-        context.operPadDataStore.edit { it[Keys.NOTIFICATION_QUICK_ACTION] = enabled }
+        context.overPadDataStore.edit { it[Keys.NOTIFICATION_QUICK_ACTION] = enabled }
     }
 }

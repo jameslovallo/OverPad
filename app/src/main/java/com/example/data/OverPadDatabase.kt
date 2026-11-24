@@ -14,13 +14,13 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     version = 3,
     exportSchema = false
 )
-@TypeConverters(OperPadTypeConverters::class)
-abstract class OperPadDatabase : RoomDatabase() {
-    abstract fun operPadDao(): OperPadDao
+@TypeConverters(OverPadTypeConverters::class)
+abstract class OverPadDatabase : RoomDatabase() {
+    abstract fun overPadDao(): OverPadDao
 
     companion object {
         @Volatile
-        private var INSTANCE: OperPadDatabase? = null
+        private var INSTANCE: OverPadDatabase? = null
 
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -77,11 +77,11 @@ abstract class OperPadDatabase : RoomDatabase() {
             }
         }
 
-        fun getInstance(context: Context): OperPadDatabase {
+        fun getInstance(context: Context): OverPadDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
-                    OperPadDatabase::class.java,
+                    OverPadDatabase::class.java,
                     "operpad.db"
                 )
                     .addMigrations(MIGRATION_1_2, MIGRATION_2_3)

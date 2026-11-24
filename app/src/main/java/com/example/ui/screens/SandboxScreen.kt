@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -101,6 +102,7 @@ fun SandboxScreen(
         if (onNavigateBack != null) {
             TopAppBar(
                 title = { Text("Test Pad", style = MaterialTheme.typography.titleLarge) },
+                windowInsets = WindowInsets(0),
                 navigationIcon = {
                     IconButton(
                         onClick = onNavigateBack,
@@ -273,8 +275,8 @@ fun SandboxScreen(
 
                         activePreset.controls.filter { it.visible && it.type != ControlType.SETTINGS }.forEach { placement ->
                             val scaled = placement.copy(scale = placement.scale * canvasScale)
-                            val wPx = with(density) { (scaled.type.baseWidthDp * scaled.scale).dp.toPx() }
-                            val hPx = with(density) { (scaled.type.baseHeightDp * scaled.scale).dp.toPx() }
+                            val wPx = with(density) { scaled.effectiveWidthDp().dp.toPx() }
+                            val hPx = with(density) { scaled.effectiveHeightDp().dp.toPx() }
                             val offsetX = (placement.xFraction * widthPx - wPx / 2f).roundToInt()
                             val offsetY = (placement.yFraction * heightPx - hPx / 2f).roundToInt()
 

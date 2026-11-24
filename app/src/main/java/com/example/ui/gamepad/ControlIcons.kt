@@ -253,7 +253,7 @@ private fun BackViewIcon(
     ) {
         val w = this.size.width
         val h = this.size.height
-        val stroke = (minOf(w, h) * 0.11f).coerceAtLeast(1.4.dp.toPx())
+        val stroke = (minOf(w, h) * 0.11f).coerceAtLeast(1.dp.toPx())
         val radius = CornerRadius(w * 0.12f, h * 0.12f)
 
         drawRoundRect(
@@ -291,7 +291,7 @@ private fun MenuTextLinesIcon(
     ) {
         val w = this.size.width
         val h = this.size.height
-        val stroke = (minOf(w, h) * 0.13f).coerceAtLeast(1.6.dp.toPx())
+        val stroke = (minOf(w, h) * 0.13f).coerceAtLeast(1.dp.toPx())
 
         listOf(0.28f, 0.50f, 0.72f).forEach { ny ->
             drawLine(

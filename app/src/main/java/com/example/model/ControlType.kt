@@ -2,6 +2,13 @@ package com.example.model
 
 import android.view.KeyEvent
 
+enum class ButtonShape(val label: String) {
+    CIRCLE("Circle"),
+    ROUNDED("Rounded"),
+    PILL("Pill"),
+    SQUARE("Square")
+}
+
 /**
  * Fixed, non-remappable XInput gamepad controls + the Settings overlay button.
  * Each gamepad control maps immutably to its canonical XInput / Android input target.
@@ -15,6 +22,9 @@ enum class ControlType(
     val baseHeightDp: Float,
     val canHide: Boolean = true,
     val supportsDragAim: Boolean = false,
+    val supportsShape: Boolean = true,
+    val supportsToggle: Boolean = true,
+    val defaultShape: ButtonShape = ButtonShape.CIRCLE,
     val keyCode: Int? = null
 ) {
     LEFT_STICK(
@@ -23,7 +33,9 @@ enum class ControlType(
         xinputBinding = "XInput sThumbLX / sThumbLY",
         androidCodeSummary = "AXIS_X / AXIS_Y",
         baseWidthDp = 112f,
-        baseHeightDp = 112f
+        baseHeightDp = 112f,
+        supportsShape = false,
+        supportsToggle = false
     ),
     RIGHT_STICK(
         displayName = "Right Thumbstick",
@@ -31,7 +43,9 @@ enum class ControlType(
         xinputBinding = "XInput sThumbRX / sThumbRY",
         androidCodeSummary = "AXIS_Z / AXIS_RZ",
         baseWidthDp = 112f,
-        baseHeightDp = 112f
+        baseHeightDp = 112f,
+        supportsShape = false,
+        supportsToggle = false
     ),
     DPAD(
         displayName = "D-Pad",
@@ -39,7 +53,10 @@ enum class ControlType(
         xinputBinding = "XInput DPAD_UP/DOWN/LEFT/RIGHT",
         androidCodeSummary = "AXIS_HAT_X/Y + DPAD",
         baseWidthDp = 116f,
-        baseHeightDp = 116f
+        baseHeightDp = 116f,
+        supportsShape = true,
+        supportsToggle = false,
+        defaultShape = ButtonShape.CIRCLE
     ),
     BUTTON_A(
         displayName = "A Button",
@@ -48,6 +65,7 @@ enum class ControlType(
         androidCodeSummary = "KEYCODE_BUTTON_A",
         baseWidthDp = 54f,
         baseHeightDp = 54f,
+        defaultShape = ButtonShape.CIRCLE,
         keyCode = KeyEvent.KEYCODE_BUTTON_A
     ),
     BUTTON_B(
@@ -57,6 +75,7 @@ enum class ControlType(
         androidCodeSummary = "KEYCODE_BUTTON_B",
         baseWidthDp = 54f,
         baseHeightDp = 54f,
+        defaultShape = ButtonShape.CIRCLE,
         keyCode = KeyEvent.KEYCODE_BUTTON_B
     ),
     BUTTON_X(
@@ -66,6 +85,7 @@ enum class ControlType(
         androidCodeSummary = "KEYCODE_BUTTON_X",
         baseWidthDp = 54f,
         baseHeightDp = 54f,
+        defaultShape = ButtonShape.CIRCLE,
         keyCode = KeyEvent.KEYCODE_BUTTON_X
     ),
     BUTTON_Y(
@@ -75,6 +95,7 @@ enum class ControlType(
         androidCodeSummary = "KEYCODE_BUTTON_Y",
         baseWidthDp = 54f,
         baseHeightDp = 54f,
+        defaultShape = ButtonShape.CIRCLE,
         keyCode = KeyEvent.KEYCODE_BUTTON_Y
     ),
     BUTTON_LB(
@@ -84,6 +105,7 @@ enum class ControlType(
         androidCodeSummary = "KEYCODE_BUTTON_L1",
         baseWidthDp = 74f,
         baseHeightDp = 48f,
+        defaultShape = ButtonShape.PILL,
         keyCode = KeyEvent.KEYCODE_BUTTON_L1
     ),
     BUTTON_RB(
@@ -93,6 +115,7 @@ enum class ControlType(
         androidCodeSummary = "KEYCODE_BUTTON_R1",
         baseWidthDp = 74f,
         baseHeightDp = 48f,
+        defaultShape = ButtonShape.PILL,
         keyCode = KeyEvent.KEYCODE_BUTTON_R1
     ),
     TRIGGER_LT(
@@ -103,6 +126,7 @@ enum class ControlType(
         baseWidthDp = 78f,
         baseHeightDp = 52f,
         supportsDragAim = true,
+        defaultShape = ButtonShape.ROUNDED,
         keyCode = KeyEvent.KEYCODE_BUTTON_L2
     ),
     TRIGGER_RT(
@@ -113,6 +137,7 @@ enum class ControlType(
         baseWidthDp = 78f,
         baseHeightDp = 52f,
         supportsDragAim = true,
+        defaultShape = ButtonShape.ROUNDED,
         keyCode = KeyEvent.KEYCODE_BUTTON_R2
     ),
     BUTTON_L3(
@@ -122,6 +147,7 @@ enum class ControlType(
         androidCodeSummary = "KEYCODE_BUTTON_THUMBL",
         baseWidthDp = 48f,
         baseHeightDp = 48f,
+        defaultShape = ButtonShape.CIRCLE,
         keyCode = KeyEvent.KEYCODE_BUTTON_THUMBL
     ),
     BUTTON_R3(
@@ -131,6 +157,7 @@ enum class ControlType(
         androidCodeSummary = "KEYCODE_BUTTON_THUMBR",
         baseWidthDp = 48f,
         baseHeightDp = 48f,
+        defaultShape = ButtonShape.CIRCLE,
         keyCode = KeyEvent.KEYCODE_BUTTON_THUMBR
     ),
     BUTTON_BACK(
@@ -140,6 +167,7 @@ enum class ControlType(
         androidCodeSummary = "KEYCODE_BUTTON_SELECT",
         baseWidthDp = 60f,
         baseHeightDp = 48f,
+        defaultShape = ButtonShape.PILL,
         keyCode = KeyEvent.KEYCODE_BUTTON_SELECT
     ),
     BUTTON_START(
@@ -149,6 +177,7 @@ enum class ControlType(
         androidCodeSummary = "KEYCODE_BUTTON_START",
         baseWidthDp = 60f,
         baseHeightDp = 48f,
+        defaultShape = ButtonShape.PILL,
         keyCode = KeyEvent.KEYCODE_BUTTON_START
     ),
     SETTINGS(
@@ -158,6 +187,21 @@ enum class ControlType(
         androidCodeSummary = "OverPad Menu",
         baseWidthDp = 48f,
         baseHeightDp = 48f,
-        canHide = false
-    )
+        canHide = false,
+        supportsShape = true,
+        supportsToggle = false,
+        defaultShape = ButtonShape.CIRCLE
+    );
+
+    fun sizeDpFor(shape: ButtonShape): Pair<Float, Float> {
+        if (!supportsShape) return baseWidthDp to baseHeightDp
+        return when (shape) {
+            ButtonShape.CIRCLE, ButtonShape.SQUARE -> {
+                val side = ((baseWidthDp + baseHeightDp) / 2f).coerceAtLeast(48f)
+                side to side
+            }
+            ButtonShape.ROUNDED -> baseWidthDp to baseHeightDp
+            ButtonShape.PILL -> maxOf(baseWidthDp, baseHeightDp * 1.45f) to baseHeightDp
+        }
+    }
 }

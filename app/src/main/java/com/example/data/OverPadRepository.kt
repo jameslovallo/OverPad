@@ -5,12 +5,13 @@ import com.example.model.ControllerPreset
 import com.example.model.DefaultPresets
 import com.example.model.PresetCategory
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.util.UUID
 
-class OperPadRepository(
-    private val dao: OperPadDao,
-    private val preferences: OperPadPreferences
+class OverPadRepository(
+    private val dao: OverPadDao,
+    private val preferences: OverPadPreferences
 ) {
     val presetsFlow: Flow<List<ControllerPreset>> = dao.observeAllPresets().map { entities ->
         entities.map { it.toDomain() }
@@ -20,7 +21,7 @@ class OperPadRepository(
         list.map { AppPresetBinding(it.packageName, it.appLabel, it.presetId) }
     }
 
-    val userSettingsFlow: Flow<OperPadUserSettings> = preferences.settingsFlow
+    val userSettingsFlow: Flow<OverPadUserSettings> = preferences.settingsFlow
 
     suspend fun ensureDefaultPresetsSeeded() {
         val existing = dao.getAllPresetsOnce()
@@ -97,5 +98,66 @@ class OperPadRepository(
 
     suspend fun setNotificationQuickActionEnabled(enabled: Boolean) {
         preferences.setNotificationQuickActionEnabled(enabled)
+    }
+
+    suspend fun getAllPresetsSnapshot(): List<ControllerPreset> {
+        return dao.getAllPresetsOnce().map { it.toDomain() }
+    }
+
+    suspend fun exportProfilesJson(): String {
+        val presets = dao.getAllPresetsOnce().map { it.toDomain() }
+        val bindings = dao.getAllBindingsOnce().map {
+            AppPresetBinding(it.packageName, it.appLabel, it.presetId)
+        }
+        val settings = preferences.settingsFlow.first()
+        return ProfileBackupCodec.encodeBackup(
+            presets = presets,
+            bindings = bindings,
+            defaultPresetId = settings.defaultPresetId
+        )
+    }
+
+    suspend fun exportSinglePresetJson(presetId: String): String? {
+        val preset = dao.getPresetById(presetId)?.toDomain() ?: return null
+        return ProfileBackupCodec.encodeSinglePreset(preset)
+    }
+
+    suspend fun importProfilesJson(json: String): ProfileImportResult {
+        val backup = ProfileBackupCodec.decodeBackup(json)
+        val sanitizedPresets = backup.presets.map { preset ->
+            val safeId = preset.id.trim().ifBlank { "preset_custom_${UUID.randomUUID().toString().take(8)}" }
+            val isCanonicalBuiltIn = DefaultPresets.byId(safeId) != null
+            preset.copy(
+                id = safeId,
+                isBuiltIn = isCanonicalBuiltIn
+            )
+        }
+        dao.upsertPresets(sanitizedPresets.map { it.toEntity() })
+
+        val validPresetIds = (dao.getAllPresetsOnce().map { it.id } + sanitizedPresets.map { it.id }).toSet()
+        val validBindings = backup.bindings.filter {
+            it.packageName.isNotBlank() && it.presetId in validPresetIds
+        }
+        validBindings.forEach { binding ->
+            dao.upsertBinding(
+                AppBindingEntity(
+                    packageName = binding.packageName,
+                    appLabel = binding.appLabel.ifBlank { binding.packageName },
+                    presetId = binding.presetId
+                )
+            )
+        }
+
+        val restoredDefaultId = backup.defaultPresetId?.takeIf { it in validPresetIds }
+            ?: sanitizedPresets.firstOrNull()?.id
+        if (restoredDefaultId != null) {
+            preferences.setDefaultPresetId(restoredDefaultId)
+        }
+
+        return ProfileImportResult(
+            importedPresetsCount = sanitizedPresets.size,
+            importedBindingsCount = validBindings.size,
+            restoredDefaultPresetId = restoredDefaultId
+        )
     }
 }

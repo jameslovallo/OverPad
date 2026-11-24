@@ -150,10 +150,26 @@ class TouchMouseLookFilter {
         const val MIN_SENSITIVITY = 2.0f
         const val MAX_SENSITIVITY = 4.0f
         const val DEFAULT_SENSITIVITY = 2.5f
+        const val SENSITIVITY_STEP = 0.10f
+        const val SENSITIVITY_STEPS = 19
 
         const val DEFAULT_ANTI_DEADZONE = 0.14f
         const val MIN_ANTI_DEADZONE = 0.00f
         const val MAX_ANTI_DEADZONE = 0.28f
+        const val ANTI_DEADZONE_STEP = 0.02f
+        const val ANTI_DEADZONE_STEPS = 13
+
+        fun snapSensitivity(rawSensitivity: Float): Float {
+            val stepped = Math.round(rawSensitivity / SENSITIVITY_STEP) * SENSITIVITY_STEP
+            return ((stepped * 100f).let { Math.round(it) } / 100f)
+                .coerceIn(MIN_SENSITIVITY, MAX_SENSITIVITY)
+        }
+
+        fun snapAntiDeadzone(rawAntiDeadzone: Float): Float {
+            val stepped = Math.round(rawAntiDeadzone / ANTI_DEADZONE_STEP) * ANTI_DEADZONE_STEP
+            return ((stepped * 100f).let { Math.round(it) } / 100f)
+                .coerceIn(MIN_ANTI_DEADZONE, MAX_ANTI_DEADZONE)
+        }
 
         private const val REFERENCE_MAX_SPEED_DP_PER_SEC = 560f
         private const val RESPONSE_EXPONENT = 0.72f

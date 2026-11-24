@@ -1,8 +1,13 @@
 package com.example
 
+import com.example.data.ProfileBackupCodec
+import com.example.model.AppPresetBinding
+import com.example.model.ButtonShape
+import com.example.model.ControlPlacement
 import com.example.model.ControlType
 import com.example.model.DefaultPresets
 import com.example.model.GridSnapper
+import com.example.model.PresetCategory
 import com.example.shizuku.ShizukuConnectionStage
 import com.example.shizuku.ShizukuStatus
 import com.example.xinput.DPadDirectionState
@@ -13,7 +18,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class OperPadEngineTest {
+class OverPadEngineTest {
 
     @Test
     fun defaultPresets_includeFpsAndSelectiveVisibility() {
@@ -388,5 +393,204 @@ class OperPadEngineTest {
             densityPx = 2.0f
         )
         assertEquals(ControlType.LEFT_STICK, hitStick?.type)
+    }
+
+    @Test
+    fun buttonShapeAndToggle_computeEffectiveDimensionsAndPreserveDefaults() {
+        // Face button A defaults to CIRCLE and toggleable = false
+        val defaultA = ControlPlacement(type = ControlType.BUTTON_A, xFraction = 0.8f, yFraction = 0.7f)
+        assertEquals(ButtonShape.CIRCLE, defaultA.resolvedShape())
+        assertFalse(defaultA.toggleable)
+        assertEquals(54f, defaultA.effectiveWidthDp(), 0.01f)
+        assertEquals(54f, defaultA.effectiveHeightDp(), 0.01f)
+
+        // Setting PILL on a face button expands width proportionally while keeping height
+        val pillA = defaultA.copy(shape = ButtonShape.PILL, toggleable = true, scale = 1.5f)
+        assertEquals(ButtonShape.PILL, pillA.resolvedShape())
+        assertTrue(pillA.toggleable)
+        assertEquals(54f * 1.45f * 1.5f, pillA.effectiveWidthDp(), 0.01f)
+        assertEquals(54f * 1.5f, pillA.effectiveHeightDp(), 0.01f)
+
+        // Setting SQUARE on rectangular trigger RT produces 1:1 square >= 48dp
+        val squareRt = ControlPlacement(
+            type = ControlType.TRIGGER_RT,
+            xFraction = 0.85f,
+            yFraction = 0.25f,
+            shape = ButtonShape.SQUARE
+        )
+        assertEquals(65f, squareRt.effectiveWidthDp(), 0.01f)
+        assertEquals(65f, squareRt.effectiveHeightDp(), 0.01f)
+
+        // D-Pad supports shape customization while toggleable remains false
+        assertTrue(ControlType.DPAD.supportsShape)
+        assertFalse(ControlType.DPAD.supportsToggle)
+        val defaultDpad = ControlPlacement(type = ControlType.DPAD, xFraction = 0.2f, yFraction = 0.6f)
+        assertEquals(ButtonShape.CIRCLE, defaultDpad.resolvedShape())
+        assertEquals(116f, defaultDpad.effectiveWidthDp(), 0.01f)
+        assertEquals(116f, defaultDpad.effectiveHeightDp(), 0.01f)
+        val pillDpad = defaultDpad.copy(shape = ButtonShape.PILL)
+        assertEquals(ButtonShape.PILL, pillDpad.resolvedShape())
+        assertEquals(116f * 1.45f, pillDpad.effectiveWidthDp(), 0.01f)
+        assertEquals(116f, pillDpad.effectiveHeightDp(), 0.01f)
+
+        // Non-shapeable sticks ignore shape overrides and stay square
+        val stick = ControlPlacement(
+            type = ControlType.LEFT_STICK,
+            xFraction = 0.2f,
+            yFraction = 0.6f,
+            shape = ButtonShape.PILL
+        )
+        assertFalse(ControlType.LEFT_STICK.supportsShape)
+        assertFalse(ControlType.LEFT_STICK.supportsToggle)
+        assertEquals(112f, stick.effectiveWidthDp(), 0.01f)
+        assertEquals(112f, stick.effectiveHeightDp(), 0.01f)
+    }
+
+    @Test
+    fun profileBackupCodec_roundTripsFullProfilesBindingsAndSinglePreset() {
+        val customPreset = DefaultPresets.fpsPro()
+            .copy(
+                id = "preset_custom_abc123",
+                name = "Arena Custom",
+                category = PresetCategory.CUSTOM,
+                isBuiltIn = false,
+                gridRows = 24,
+                opacity = 0.85f
+            )
+            .let { base ->
+                base.updatePlacement(
+                    base.placementFor(ControlType.BUTTON_A).copy(
+                        shape = ButtonShape.PILL,
+                        toggleable = true,
+                        scale = 1.25f
+                    )
+                )
+            }
+        val builtInPreset = DefaultPresets.retro2D()
+        val bindings = listOf(
+            AppPresetBinding(
+                packageName = "com.example.game",
+                appLabel = "Arena Shooter",
+                presetId = customPreset.id
+            )
+        )
+
+        val encoded = ProfileBackupCodec.encodeBackup(
+            presets = listOf(builtInPreset, customPreset),
+            bindings = bindings,
+            defaultPresetId = customPreset.id,
+            exportedAtEpochMs = 1700000000000L
+        )
+        val decoded = ProfileBackupCodec.decodeBackup(encoded)
+
+        assertEquals(2, decoded.presets.size)
+        assertEquals(customPreset.id, decoded.defaultPresetId)
+        assertEquals(1, decoded.bindings.size)
+        assertEquals("com.example.game", decoded.bindings.first().packageName)
+
+        val restoredCustom = decoded.presets.first { it.id == customPreset.id }
+        assertEquals("Arena Custom", restoredCustom.name)
+        assertEquals(24, restoredCustom.gridRows)
+        assertEquals(0.85f, restoredCustom.opacity, 0.001f)
+        val restoredA = restoredCustom.placementFor(ControlType.BUTTON_A)
+        assertEquals(ButtonShape.PILL, restoredA.shape)
+        assertTrue(restoredA.toggleable)
+        assertEquals(1.25f, restoredA.scale, 0.001f)
+
+        // Single-preset export roundtrip
+        val singleJson = ProfileBackupCodec.encodeSinglePreset(customPreset, exportedAtEpochMs = 1700000000000L)
+        val decodedSingle = ProfileBackupCodec.decodeBackup(singleJson)
+        assertEquals(1, decodedSingle.presets.size)
+        assertEquals(customPreset.id, decodedSingle.presets.first().id)
+
+        // Invalid JSON raises IllegalArgumentException
+        var threw = false
+        try {
+            ProfileBackupCodec.decodeBackup("{not valid json")
+        } catch (_: IllegalArgumentException) {
+            threw = true
+        }
+        assertTrue(threw)
+    }
+
+    @Test
+    fun sliderStepping_snapsOpacitySensitivityAndDeadzoneToStepGrid() {
+        assertEquals(0.80f, GridSnapper.snapOpacity(0.79f), 0.0001f)
+        assertEquals(0.15f, GridSnapper.snapOpacity(0.05f), 0.0001f)
+        assertEquals(1.00f, GridSnapper.snapOpacity(1.20f), 0.0001f)
+
+        assertEquals(2.60f, com.example.xinput.TouchMouseLookFilter.snapSensitivity(2.58f), 0.0001f)
+        assertEquals(2.00f, com.example.xinput.TouchMouseLookFilter.snapSensitivity(1.20f), 0.0001f)
+        assertEquals(4.00f, com.example.xinput.TouchMouseLookFilter.snapSensitivity(5.50f), 0.0001f)
+
+        assertEquals(0.14f, com.example.xinput.TouchMouseLookFilter.snapAntiDeadzone(0.149f), 0.0001f)
+        assertEquals(0.00f, com.example.xinput.TouchMouseLookFilter.snapAntiDeadzone(-0.10f), 0.0001f)
+        assertEquals(0.28f, com.example.xinput.TouchMouseLookFilter.snapAntiDeadzone(0.50f), 0.0001f)
+    }
+
+    @Test
+    fun dpadFlickController_supportsSwipeFromAnywhereLeashReversalAndTapFallback() {
+        val density = 2f
+        val size = 232 // 116dp * 2
+
+        // 1. Touch dead-center and flick up by 10dp (20px) -> immediate UP
+        val flick = com.example.ui.gamepad.DPadFlickController()
+        flick.onDown(116f, 116f)
+        val tinyWobble = flick.onMove(116f, 110f, density, uptimeMs = 10L)
+        assertFalse(tinyWobble.isFlickActive)
+        assertEquals(DPadDirectionState(), tinyWobble.direction)
+
+        val flickUp = flick.onMove(122f, 92f, density, uptimeMs = 20L) // slightly angled ~14 deg up-right -> clean UP
+        assertTrue(flickUp.isFlickActive)
+        assertTrue(flickUp.directionChanged)
+        assertEquals(DPadDirectionState(up = true), flickUp.direction)
+
+        // Very fast lift at 30ms (only 10ms elapsed) preserves minimum flick pulse
+        val fastUpOutcome = flick.onUp(size, size, uptimeMs = 30L)
+        assertTrue(fastUpOutcome.shouldDeferClearMs in 1L..45L)
+        assertEquals(null, fastUpOutcome.tapPulseDirection)
+
+        // 2. Touch left edge and swipe right -> fires RIGHT (never misfires LEFT)
+        flick.onDown(24f, 116f)
+        val swipeRight = flick.onMove(52f, 116f, density, uptimeMs = 100L)
+        assertTrue(swipeRight.isFlickActive)
+        assertEquals(DPadDirectionState(right = true), swipeRight.direction)
+
+        // Continue dragging far right (90px past anchor -> leash follows), then jitter back 4dp (8px) -> stays RIGHT
+        flick.onMove(160f, 116f, density, uptimeMs = 130L)
+        val jitterHold = flick.onMove(152f, 116f, density, uptimeMs = 140L)
+        assertEquals(DPadDirectionState(right = true), jitterHold.direction)
+
+        // Slide back left past leashed anchor + threshold -> flips to LEFT smoothly without lifting
+        val reverseLeft = flick.onMove(80f, 116f, density, uptimeMs = 160L)
+        assertEquals(DPadDirectionState(left = true), reverseLeft.direction)
+
+        // Held long enough -> instant clear on release
+        val heldOutcome = flick.onUp(size, size, uptimeMs = 240L)
+        assertEquals(0L, heldOutcome.shouldDeferClearMs)
+
+        // 3. Deliberate 45-degree diagonal flick triggers both DOWN and RIGHT
+        flick.onDown(116f, 116f)
+        val diag = flick.onMove(140f, 140f, density, uptimeMs = 300L)
+        assertEquals(DPadDirectionState(down = true, right = true), diag.direction)
+
+        // 4. Quick tap on outer bottom arm without swiping yields a tap pulse on lift
+        flick.onDown(116f, 200f)
+        val quickTapOutcome = flick.onUp(size, size, uptimeMs = 340L)
+        assertEquals(DPadDirectionState(down = true), quickTapOutcome.tapPulseDirection)
+
+        // 5. Stationary hold on outer left arm engages after dwell timer
+        flick.onDown(24f, 116f)
+        assertEquals(DPadDirectionState(left = true), flick.onHoldDwellElapsed(size, size, uptimeMs = 490L))
+
+        // 6. Pill-proportioned D-Pad outer tap normalization maps top/right icons cleanly
+        assertEquals(
+            DPadDirectionState(up = true),
+            com.example.ui.gamepad.DPadFlickController.outerArmDirectionAt(168f, 40f, width = 336, height = 232)
+        )
+        assertEquals(
+            DPadDirectionState(right = true),
+            com.example.ui.gamepad.DPadFlickController.outerArmDirectionAt(290f, 116f, width = 336, height = 232)
+        )
     }
 }

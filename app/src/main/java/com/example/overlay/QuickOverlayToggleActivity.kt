@@ -4,7 +4,7 @@ import android.app.Activity
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import com.example.OperPadApplication
+import com.example.OverPadApplication
 
 /**
  * Zero-UI translucent trampoline Activity used only as an Android 14+ fallback if a device's
@@ -14,9 +14,9 @@ class QuickOverlayToggleActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Settings.canDrawOverlays(this)) {
-            val app = application as? OperPadApplication
+            val app = application as? OverPadApplication
             app?.shizukuBridge?.refreshStatusAndAutoConnect()
-            OperPadOverlayService.start(this)
+            OverPadOverlayService.start(this)
         }
         finish()
         disableTransitions()

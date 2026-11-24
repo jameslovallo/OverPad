@@ -1,9 +1,9 @@
 package com.example
 
 import android.app.Application
-import com.example.data.OperPadDatabase
-import com.example.data.OperPadPreferences
-import com.example.data.OperPadRepository
+import com.example.data.OverPadDatabase
+import com.example.data.OverPadPreferences
+import com.example.data.OverPadRepository
 import com.example.model.ControllerPreset
 import com.example.model.DefaultPresets
 import com.example.overlay.OverlayNotificationHelper
@@ -29,14 +29,14 @@ data class OverlayRuntimeState(
     val isOverlayEditMode: Boolean = false
 )
 
-class OperPadApplication : Application() {
+class OverPadApplication : Application() {
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    lateinit var database: OperPadDatabase
+    lateinit var database: OverPadDatabase
         private set
-    lateinit var preferences: OperPadPreferences
+    lateinit var preferences: OverPadPreferences
         private set
-    lateinit var repository: OperPadRepository
+    lateinit var repository: OverPadRepository
         private set
     lateinit var foregroundAppMonitor: ForegroundAppMonitor
         private set
@@ -48,11 +48,18 @@ class OperPadApplication : Application() {
     private val _overlayState = MutableStateFlow(OverlayRuntimeState())
     val overlayState: StateFlow<OverlayRuntimeState> = _overlayState.asStateFlow()
 
+    private val _isAppInMultiWindow = MutableStateFlow(false)
+    val isAppInMultiWindow: StateFlow<Boolean> = _isAppInMultiWindow.asStateFlow()
+
+    fun setAppInMultiWindow(inMultiWindow: Boolean) {
+        _isAppInMultiWindow.value = inMultiWindow
+    }
+
     override fun onCreate() {
         super.onCreate()
-        database = OperPadDatabase.getInstance(this)
-        preferences = OperPadPreferences(this)
-        repository = OperPadRepository(database.operPadDao(), preferences)
+        database = OverPadDatabase.getInstance(this)
+        preferences = OverPadPreferences(this)
+        repository = OverPadRepository(database.overPadDao(), preferences)
         foregroundAppMonitor = ForegroundAppMonitor(this)
         xInputEngine = XInputControllerEngine()
         shizukuBridge = ShizukuBridgeManager(this).apply {
@@ -78,12 +85,12 @@ class OperPadApplication : Application() {
                 ?: DefaultPresets.fpsPro()
             updateOverlayState { it.copy(activePreset = initial) }
             OverlayNotificationHelper.syncStandbyNotification(
-                context = this@OperPadApplication,
+                context = this@OverPadApplication,
                 isOverlayRunning = _overlayState.value.isRunning,
                 presetName = initial.name,
                 quickActionEnabled = settings.notificationQuickActionEnabled
             )
-            OverlayNotificationHelper.requestTileUpdate(this@OperPadApplication)
+            OverlayNotificationHelper.requestTileUpdate(this@OverPadApplication)
         }
     }
 
@@ -93,18 +100,18 @@ class OperPadApplication : Application() {
             val runtime = _overlayState.value
             if (runtime.isRunning) {
                 OverlayNotificationHelper.updateActiveNotificationIfPossible(
-                    context = this@OperPadApplication,
+                    context = this@OverPadApplication,
                     presetName = runtime.activePreset.name
                 )
             } else {
                 OverlayNotificationHelper.syncStandbyNotification(
-                    context = this@OperPadApplication,
+                    context = this@OverPadApplication,
                     isOverlayRunning = false,
                     presetName = runtime.activePreset.name,
                     quickActionEnabled = settings.notificationQuickActionEnabled
                 )
             }
-            OverlayNotificationHelper.requestTileUpdate(this@OperPadApplication)
+            OverlayNotificationHelper.requestTileUpdate(this@OverPadApplication)
         }
     }
 

@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/ic_operpad_foreground_1795371252952"
+        android:drawable="@drawable/ic_overpad_foreground_1795371252952"
         android:gravity="center" />
 </layer-list>

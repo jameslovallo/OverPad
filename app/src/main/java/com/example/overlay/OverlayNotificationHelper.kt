@@ -18,7 +18,7 @@ import com.example.MainActivity
 import com.example.R
 
 object OverlayNotificationHelper {
-    const val CHANNEL_ID = "operpad_overlay_channel"
+    const val CHANNEL_ID = "overpad_overlay_channel"
     const val NOTIFICATION_ID = 4107
 
     fun ensureNotificationChannel(context: Context) {
@@ -35,6 +35,7 @@ object OverlayNotificationHelper {
                 enableVibration(false)
             }
             nm.createNotificationChannel(channel)
+            nm.deleteNotificationChannel("operpad_overlay_channel")
         }
     }
 
@@ -60,8 +61,8 @@ object OverlayNotificationHelper {
         val stopIntent = PendingIntent.getService(
             context,
             1,
-            Intent(context, OperPadOverlayService::class.java).apply {
-                action = OperPadOverlayService.ACTION_STOP
+            Intent(context, OverPadOverlayService::class.java).apply {
+                action = OverPadOverlayService.ACTION_STOP
             },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
@@ -89,8 +90,8 @@ object OverlayNotificationHelper {
             },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val startServiceIntent = Intent(context, OperPadOverlayService::class.java).apply {
-            action = OperPadOverlayService.ACTION_START
+        val startServiceIntent = Intent(context, OverPadOverlayService::class.java).apply {
+            action = OverPadOverlayService.ACTION_START
         }
         val enableIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             PendingIntent.getForegroundService(

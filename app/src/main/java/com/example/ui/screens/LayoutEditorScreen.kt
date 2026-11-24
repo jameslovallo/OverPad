@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -17,6 +20,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,6 +37,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Remove
@@ -75,6 +80,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.example.model.ButtonShape
 import com.example.model.ControlType
 import com.example.model.ControllerPreset
 import com.example.model.GridSnapper
@@ -102,6 +108,7 @@ fun LayoutEditorScreen(
     onDuplicatePreset: (ControllerPreset, String) -> Unit,
     onResetBuiltInPreset: (String) -> Unit,
     onDeleteCustomPreset: (String) -> Unit,
+    onExportPreset: ((presetId: String, uri: Uri) -> Unit)? = null,
     onNavigateBack: (() -> Unit)? = null
 ) {
     val preset = presets.firstOrNull { it.id == editingPresetId } ?: presets.firstOrNull() ?: return
@@ -112,6 +119,14 @@ fun LayoutEditorScreen(
     var showDuplicateDialog by remember { mutableStateOf(false) }
     var duplicateName by remember { mutableStateOf("") }
     var activeDragPos by remember { mutableStateOf<Pair<ControlType, Pair<Float, Float>>?>(null) }
+    val currentPresetId by rememberUpdatedState(preset.id)
+    val exportPresetLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            onExportPreset?.invoke(currentPresetId, uri)
+        }
+    }
 
     if (onNavigateBack != null) {
         BackHandler(onBack = onNavigateBack)
@@ -148,6 +163,7 @@ fun LayoutEditorScreen(
         if (onNavigateBack != null) {
             TopAppBar(
                 title = { Text(preset.name, style = MaterialTheme.typography.titleLarge) },
+                windowInsets = WindowInsets(0),
                 navigationIcon = {
                     IconButton(
                         onClick = onNavigateBack,
@@ -160,6 +176,20 @@ fun LayoutEditorScreen(
                     }
                 },
                 actions = {
+                    if (onExportPreset != null) {
+                        IconButton(
+                            onClick = {
+                                val slug = preset.name.lowercase()
+                                    .replace(Regex("[^a-z0-9]+"), "-")
+                                    .trim('-')
+                                    .ifBlank { "profile" }
+                                exportPresetLauncher.launch("overpad-$slug.json")
+                            },
+                            modifier = Modifier.testTag("export_preset_button")
+                        ) {
+                            Icon(Icons.Default.FileUpload, contentDescription = "Export profile")
+                        }
+                    }
                     IconButton(
                         onClick = {
                             duplicateName = "${preset.name} Custom"
@@ -426,8 +456,8 @@ fun LayoutEditorScreen(
                                         val renderY = draggedCoords?.second ?: placement.yFraction
 
                                         val effectivePlacement = placement.copy(scale = placement.scale * canvasScale)
-                                        val wPx = with(density) { (effectivePlacement.type.baseWidthDp * effectivePlacement.scale).dp.toPx() }
-                                        val hPx = with(density) { (effectivePlacement.type.baseHeightDp * effectivePlacement.scale).dp.toPx() }
+                                        val wPx = with(density) { effectivePlacement.effectiveWidthDp().dp.toPx() }
+                                        val hPx = with(density) { effectivePlacement.effectiveHeightDp().dp.toPx() }
                                         val offsetX = (renderX * widthPx - wPx / 2f).roundToInt()
                                         val offsetY = (renderY * heightPx - hPx / 2f).roundToInt()
 
@@ -554,6 +584,49 @@ fun LayoutEditorScreen(
                             )
                         }
 
+                        if (selectedControl.supportsShape) {
+                            val currentShape = selectedPlacement.resolvedShape()
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Button Shape", style = MaterialTheme.typography.titleSmall)
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    ButtonShape.entries.forEach { shapeOption ->
+                                        FilterChip(
+                                            selected = currentShape == shapeOption,
+                                            onClick = {
+                                                onUpdatePreset(
+                                                    preset.updatePlacement(selectedPlacement.copy(shape = shapeOption))
+                                                )
+                                            },
+                                            label = { Text(shapeOption.label) },
+                                            modifier = Modifier.testTag("shape_chip_${shapeOption.name.lowercase()}")
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (selectedControl.supportsToggle) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Toggle Mode", style = MaterialTheme.typography.titleSmall)
+                                Switch(
+                                    checked = selectedPlacement.toggleable,
+                                    onCheckedChange = { enabled ->
+                                        onUpdatePreset(
+                                            preset.updatePlacement(selectedPlacement.copy(toggleable = enabled))
+                                        )
+                                    },
+                                    modifier = Modifier.testTag("control_toggle_switch")
+                                )
+                            }
+                        }
+
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
                         Text(
@@ -671,6 +744,7 @@ fun LayoutEditorScreen(
                                     onUpdatePreset(preset.copy(opacity = GridSnapper.snapOpacity(raw)))
                                 },
                                 valueRange = GridSnapper.MIN_OPACITY..GridSnapper.MAX_OPACITY,
+                                steps = GridSnapper.OPACITY_STEPS,
                                 modifier = Modifier.testTag("preset_opacity_slider")
                             )
                         }
@@ -826,8 +900,14 @@ fun LayoutEditorScreen(
                                     }
                                     Slider(
                                         value = clampedSensitivity,
-                                        onValueChange = { onUpdatePreset(preset.copy(fpsLookSensitivity = it)) },
-                                        valueRange = TouchMouseLookFilter.MIN_SENSITIVITY..TouchMouseLookFilter.MAX_SENSITIVITY
+                                        onValueChange = { raw ->
+                                            onUpdatePreset(
+                                                preset.copy(fpsLookSensitivity = TouchMouseLookFilter.snapSensitivity(raw))
+                                            )
+                                        },
+                                        valueRange = TouchMouseLookFilter.MIN_SENSITIVITY..TouchMouseLookFilter.MAX_SENSITIVITY,
+                                        steps = TouchMouseLookFilter.SENSITIVITY_STEPS,
+                                        modifier = Modifier.testTag("look_sensitivity_slider")
                                     )
                                 }
                                 Column {
@@ -843,9 +923,16 @@ fun LayoutEditorScreen(
                                         )
                                     }
                                     Slider(
-                                        value = antiDeadzone,
-                                        onValueChange = onUpdateAntiDeadzone,
-                                        valueRange = TouchMouseLookFilter.MIN_ANTI_DEADZONE..TouchMouseLookFilter.MAX_ANTI_DEADZONE
+                                        value = antiDeadzone.coerceIn(
+                                            TouchMouseLookFilter.MIN_ANTI_DEADZONE,
+                                            TouchMouseLookFilter.MAX_ANTI_DEADZONE
+                                        ),
+                                        onValueChange = { raw ->
+                                            onUpdateAntiDeadzone(TouchMouseLookFilter.snapAntiDeadzone(raw))
+                                        },
+                                        valueRange = TouchMouseLookFilter.MIN_ANTI_DEADZONE..TouchMouseLookFilter.MAX_ANTI_DEADZONE,
+                                        steps = TouchMouseLookFilter.ANTI_DEADZONE_STEPS,
+                                        modifier = Modifier.testTag("deadzone_boost_slider")
                                     )
                                 }
                             }

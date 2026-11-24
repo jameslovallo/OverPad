@@ -18,8 +18,17 @@ data class ControlPlacement(
     val xFraction: Float,
     val yFraction: Float,
     val scale: Float = 1.0f,
-    val visible: Boolean = true
-)
+    val visible: Boolean = true,
+    val shape: ButtonShape? = null,
+    val toggleable: Boolean = false
+) {
+    fun resolvedShape(): ButtonShape =
+        if (type.supportsShape) (shape ?: type.defaultShape) else type.defaultShape
+
+    fun effectiveWidthDp(): Float = type.sizeDpFor(resolvedShape()).first * scale
+
+    fun effectiveHeightDp(): Float = type.sizeDpFor(resolvedShape()).second * scale
+}
 
 @JsonClass(generateAdapter = true)
 data class ControllerPreset(
@@ -74,6 +83,8 @@ object GridSnapper {
     const val SCALE_STEP = 0.05f
     const val MIN_OPACITY = 0.15f
     const val MAX_OPACITY = 1.0f
+    const val OPACITY_STEP = 0.05f
+    const val OPACITY_STEPS = 16
 
     fun computeGridColumns(rows: Int, widthPx: Float, heightPx: Float): Int {
         val safeRows = rows.coerceIn(MIN_GRID_ROWS, MAX_GRID_ROWS)
@@ -134,7 +145,7 @@ object GridSnapper {
     }
 
     fun snapOpacity(rawOpacity: Float): Float {
-        val stepped = (rawOpacity / 0.05f).roundToInt() * 0.05f
+        val stepped = (rawOpacity / OPACITY_STEP).roundToInt() * OPACITY_STEP
         return stepped.coerceIn(MIN_OPACITY, MAX_OPACITY)
     }
 }

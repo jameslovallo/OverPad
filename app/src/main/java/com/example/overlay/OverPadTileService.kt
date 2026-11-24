@@ -8,7 +8,7 @@ import android.os.Build
 import android.provider.Settings
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
-import com.example.OperPadApplication
+import com.example.OverPadApplication
 import com.example.R
 
 /**
@@ -24,12 +24,12 @@ class OverPadTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        val app = application as? OperPadApplication
+        val app = application as? OverPadApplication
         val isRunning = app?.overlayState?.value?.isRunning == true
 
         if (isRunning) {
             app?.shizukuBridge?.setOverlayActive(false)
-            OperPadOverlayService.stop(this)
+            OverPadOverlayService.stop(this)
             updateTileState(active = false, subtitleText = "Off")
             return
         }
@@ -47,7 +47,7 @@ class OverPadTileService : TileService() {
 
         val startedDirectly = runCatching {
             app?.shizukuBridge?.refreshStatusAndAutoConnect()
-            OperPadOverlayService.start(this)
+            OverPadOverlayService.start(this)
         }.isSuccess
 
         if (startedDirectly) {
@@ -64,7 +64,7 @@ class OverPadTileService : TileService() {
 
     private fun syncTile() {
         val tile = qsTile ?: return
-        val app = application as? OperPadApplication
+        val app = application as? OverPadApplication
         val runtime = app?.overlayState?.value
         val isRunning = runtime?.isRunning == true
         val canDraw = Settings.canDrawOverlays(this)

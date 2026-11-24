@@ -7,7 +7,7 @@ import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
 @Dao
-interface OperPadDao {
+interface OverPadDao {
     @Query("SELECT * FROM presets ORDER BY isBuiltIn DESC, updatedAt DESC")
     fun observeAllPresets(): Flow<List<PresetEntity>>
 
@@ -28,6 +28,9 @@ interface OperPadDao {
 
     @Query("SELECT * FROM app_bindings ORDER BY appLabel ASC")
     fun observeAllBindings(): Flow<List<AppBindingEntity>>
+
+    @Query("SELECT * FROM app_bindings ORDER BY appLabel ASC")
+    suspend fun getAllBindingsOnce(): List<AppBindingEntity>
 
     @Query("SELECT * FROM app_bindings WHERE packageName = :packageName LIMIT 1")
     suspend fun getBindingForPackage(packageName: String): AppBindingEntity?

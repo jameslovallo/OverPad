@@ -34,12 +34,15 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.QueryStats
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RocketLaunch
+import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Usb
@@ -76,14 +79,18 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
 import com.example.R
-import com.example.data.OperPadUserSettings
+import com.example.data.OverPadUserSettings
 import com.example.model.AppPresetBinding
 import com.example.model.ControllerPreset
 import com.example.model.InstalledAppInfo
 import com.example.overlay.OverPadTileService
 import com.example.shizuku.ShizukuConnectionStage
 import com.example.shizuku.ShizukuStatus
+import com.example.ui.BackupStatusMessage
 import com.example.xinput.DriverCapabilityStatus
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun SettingsScreen(
@@ -91,11 +98,12 @@ fun SettingsScreen(
     bindings: List<AppPresetBinding>,
     installedApps: List<InstalledAppInfo>,
     isLoadingApps: Boolean,
-    userSettings: OperPadUserSettings,
+    userSettings: OverPadUserSettings,
     hasOverlayPermission: Boolean,
     hasUsagePermission: Boolean,
     shizukuStatus: ShizukuStatus,
     driverCapability: DriverCapabilityStatus,
+    backupStatus: BackupStatusMessage? = null,
     onOpenOnboarding: () -> Unit,
     onRequestShizukuPermission: () -> Unit,
     onReconnectShizuku: () -> Unit,
@@ -108,6 +116,9 @@ fun SettingsScreen(
     onSetHaptics: (Boolean) -> Unit,
     onSetUdpBridge: (Boolean, String, Int) -> Unit,
     onSetNotificationQuickAction: (Boolean) -> Unit,
+    onExportProfiles: (Uri) -> Unit = {},
+    onImportProfiles: (Uri) -> Unit = {},
+    onDismissBackupStatus: () -> Unit = {},
     onRefreshPermissions: () -> Unit,
     onOpenSandbox: () -> Unit
 ) {
@@ -125,6 +136,16 @@ fun SettingsScreen(
     ) { granted ->
         hasNotificationPermission = granted
         onRefreshPermissions()
+    }
+    val exportProfilesLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) onExportProfiles(uri)
+    }
+    val importProfilesLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) onImportProfiles(uri)
     }
 
     var tileStatusText by remember { mutableStateOf<String?>(null) }
@@ -616,6 +637,123 @@ fun SettingsScreen(
                                 modifier = Modifier.testTag("add_qs_tile_button")
                             ) {
                                 Text("Add Tile", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 6. Profile Backup (Export & Import)
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 840.dp),
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.SaveAlt,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Profile Backup", style = MaterialTheme.typography.titleMedium)
+                        }
+                        Text(
+                            text = "${presets.size} profiles",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val stamp = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+                                exportProfilesLauncher.launch("overpad-profiles-$stamp.json")
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("export_profiles_button")
+                        ) {
+                            Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Export")
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                importProfilesLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("import_profiles_button")
+                        ) {
+                            Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Import")
+                        }
+                    }
+
+                    backupStatus?.let { status ->
+                        Surface(
+                            shape = MaterialTheme.shapes.medium,
+                            color = if (status.isError) {
+                                MaterialTheme.colorScheme.errorContainer
+                            } else {
+                                MaterialTheme.colorScheme.secondaryContainer
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("backup_status_banner")
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = status.text,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (status.isError) {
+                                        MaterialTheme.colorScheme.onErrorContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSecondaryContainer
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(onClick = onDismissBackupStatus) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Dismiss status",
+                                        tint = if (status.isError) {
+                                            MaterialTheme.colorScheme.onErrorContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.onSecondaryContainer
+                                        },
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
                     }

@@ -58,8 +58,8 @@ object ControlDragHelper {
 
             val cx = placement.xFraction * canvasWidthPx
             val cy = placement.yFraction * canvasHeightPx
-            val visualHalfW = (placement.type.baseWidthDp * placement.scale * effectiveScaleMultiplier * densityPx) / 2f
-            val visualHalfH = (placement.type.baseHeightDp * placement.scale * effectiveScaleMultiplier * densityPx) / 2f
+            val visualHalfW = (placement.effectiveWidthDp() * effectiveScaleMultiplier * densityPx) / 2f
+            val visualHalfH = (placement.effectiveHeightDp() * effectiveScaleMultiplier * densityPx) / 2f
             val hitHalfW = maxOf(visualHalfW, minHalfHitPx)
             val hitHalfH = maxOf(visualHalfH, minHalfHitPx)
 
@@ -67,7 +67,7 @@ object ControlDragHelper {
             val dy = abs(touchY - cy)
             if (dx <= hitHalfW && dy <= hitHalfH) {
                 val normalizedDist = hypot(dx / hitHalfW, dy / hitHalfH)
-                val areaFactor = (placement.type.baseWidthDp * placement.type.baseHeightDp) / 20_000f
+                val areaFactor = (placement.effectiveWidthDp() * placement.effectiveHeightDp()) / 20_000f
                 val selectionBonus = if (placement.type == selectedControl) -0.04f else 0f
                 val score = normalizedDist + areaFactor + selectionBonus
                 if (score < bestScore) {

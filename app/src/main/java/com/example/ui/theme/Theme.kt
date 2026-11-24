@@ -14,7 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
-private val OperPadDarkColorScheme = darkColorScheme(
+private val OverPadDarkColorScheme = darkColorScheme(
     primary = Color(0xFFA0E9FF),
     onPrimary = Color(0xFF003642),
     primaryContainer = Color(0xFF004E5F),
@@ -46,7 +46,7 @@ private val OperPadDarkColorScheme = darkColorScheme(
     outlineVariant = Color(0xFF40484C)
 )
 
-private val OperPadLightColorScheme = lightColorScheme(
+private val OverPadLightColorScheme = lightColorScheme(
     primary = Color(0xFF00677D),
     onPrimary = Color.White,
     primaryContainer = Color(0xFFB5EBFF),
@@ -78,7 +78,7 @@ private val OperPadLightColorScheme = lightColorScheme(
     outlineVariant = Color(0xFFBFC8CD)
 )
 
-val OperPadShapes = Shapes(
+val OverPadShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
     small = RoundedCornerShape(12.dp),
     medium = RoundedCornerShape(18.dp),
@@ -87,7 +87,7 @@ val OperPadShapes = Shapes(
 )
 
 @Composable
-fun OperPadTheme(
+fun OverPadTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
@@ -97,14 +97,14 @@ fun OperPadTheme(
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-        darkTheme -> OperPadDarkColorScheme
-        else -> OperPadLightColorScheme
+        darkTheme -> OverPadDarkColorScheme
+        else -> OverPadLightColorScheme
     }
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = OperPadTypography,
-        shapes = OperPadShapes,
+        typography = OverPadTypography,
+        shapes = OverPadShapes,
         content = content
     )
 }

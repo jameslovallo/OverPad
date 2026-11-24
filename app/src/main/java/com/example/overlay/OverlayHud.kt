@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.VerticalAlignBottom
+import androidx.compose.material.icons.filled.VerticalAlignTop
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
@@ -57,6 +59,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -64,6 +67,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.example.OverlayRuntimeState
+import com.example.model.ButtonShape
 import com.example.model.ControlType
 import com.example.model.ControllerPreset
 import com.example.model.GridSnapper
@@ -72,7 +76,7 @@ import com.example.ui.gamepad.ControlDragHelper
 import com.example.ui.gamepad.GamepadControlIcon
 import com.example.ui.gamepad.GamepadControlNode
 import com.example.ui.gamepad.hasCustomIcon
-import com.example.ui.theme.OperPadTheme
+import com.example.ui.theme.OverPadTheme
 import com.example.xinput.TouchMouseLookFilter
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -93,7 +97,7 @@ fun OverlaySettingsHud(
     onStopOverlay: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    OperPadTheme(darkTheme = true) {
+    OverPadTheme(darkTheme = true) {
         val preset = runtimeState.activePreset
         Box(
             modifier = Modifier
@@ -228,7 +232,8 @@ fun OverlaySettingsHud(
                             onValueChange = { raw ->
                                 onUpdatePreset(preset.copy(opacity = GridSnapper.snapOpacity(raw)))
                             },
-                            valueRange = GridSnapper.MIN_OPACITY..GridSnapper.MAX_OPACITY
+                            valueRange = GridSnapper.MIN_OPACITY..GridSnapper.MAX_OPACITY,
+                            steps = GridSnapper.OPACITY_STEPS
                         )
                     }
 
@@ -301,8 +306,13 @@ fun OverlaySettingsHud(
                             }
                             Slider(
                                 value = clampedSensitivity,
-                                onValueChange = { onUpdatePreset(preset.copy(fpsLookSensitivity = it)) },
-                                valueRange = TouchMouseLookFilter.MIN_SENSITIVITY..TouchMouseLookFilter.MAX_SENSITIVITY
+                                onValueChange = { raw ->
+                                    onUpdatePreset(
+                                        preset.copy(fpsLookSensitivity = TouchMouseLookFilter.snapSensitivity(raw))
+                                    )
+                                },
+                                valueRange = TouchMouseLookFilter.MIN_SENSITIVITY..TouchMouseLookFilter.MAX_SENSITIVITY,
+                                steps = TouchMouseLookFilter.SENSITIVITY_STEPS
                             )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -316,9 +326,15 @@ fun OverlaySettingsHud(
                                 )
                             }
                             Slider(
-                                value = antiDeadzone,
-                                onValueChange = onUpdateAntiDeadzone,
-                                valueRange = TouchMouseLookFilter.MIN_ANTI_DEADZONE..TouchMouseLookFilter.MAX_ANTI_DEADZONE
+                                value = antiDeadzone.coerceIn(
+                                    TouchMouseLookFilter.MIN_ANTI_DEADZONE,
+                                    TouchMouseLookFilter.MAX_ANTI_DEADZONE
+                                ),
+                                onValueChange = { raw ->
+                                    onUpdateAntiDeadzone(TouchMouseLookFilter.snapAntiDeadzone(raw))
+                                },
+                                valueRange = TouchMouseLookFilter.MIN_ANTI_DEADZONE..TouchMouseLookFilter.MAX_ANTI_DEADZONE,
+                                steps = TouchMouseLookFilter.ANTI_DEADZONE_STEPS
                             )
                         }
                     }
@@ -408,18 +424,24 @@ fun OverlaySettingsHud(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun OverlayGridEditorScreen(
     preset: ControllerPreset,
     onUpdatePreset: (ControllerPreset) -> Unit,
     onFinishEdit: () -> Unit
 ) {
-    OperPadTheme(darkTheme = true) {
-        var selectedType by remember { mutableStateOf(ControlType.LEFT_STICK) }
+    OverPadTheme(darkTheme = true) {
+        var selectedType by remember(preset.id) {
+            mutableStateOf(preset.controls.firstOrNull { it.visible }?.type ?: ControlType.TRIGGER_RT)
+        }
         var activeDragPos by remember { mutableStateOf<Pair<ControlType, Pair<Float, Float>>?>(null) }
+        var toolbarDockedBottom by remember { mutableStateOf(false) }
         val selectedPlacement = preset.placementFor(selectedType)
         val density = LocalDensity.current
         val gridColor = MaterialTheme.colorScheme.primary
+        val leftZoneColor = MaterialTheme.colorScheme.tertiary
+        val rightZoneColor = MaterialTheme.colorScheme.secondary
 
         BoxWithConstraints(
             modifier = Modifier
@@ -519,6 +541,20 @@ fun OverlayGridEditorScreen(
                     }
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
+                    if (preset.leftMoveZoneEnabled) {
+                        drawRect(
+                            color = leftZoneColor.copy(alpha = 0.06f),
+                            topLeft = Offset.Zero,
+                            size = Size(size.width / 2f, size.height)
+                        )
+                    }
+                    if (preset.fpsRightZoneEnabled) {
+                        drawRect(
+                            color = rightZoneColor.copy(alpha = 0.06f),
+                            topLeft = Offset(size.width / 2f, 0f),
+                            size = Size(size.width / 2f, size.height)
+                        )
+                    }
                     val cols = GridSnapper.computeGridColumns(preset.gridRows, size.width, size.height)
                     GridSnapper.gridLineFractions(cols).forEach { xFrac ->
                         val xPx = xFrac * size.width
@@ -583,8 +619,8 @@ fun OverlayGridEditorScreen(
                         val renderX = draggedCoords?.first ?: placement.xFraction
                         val renderY = draggedCoords?.second ?: placement.yFraction
 
-                        val wPx = with(density) { (placement.type.baseWidthDp * placement.scale).dp.toPx() }
-                        val hPx = with(density) { (placement.type.baseHeightDp * placement.scale).dp.toPx() }
+                        val wPx = with(density) { placement.effectiveWidthDp().dp.toPx() }
+                        val hPx = with(density) { placement.effectiveHeightDp().dp.toPx() }
                         val offsetX = (renderX * widthPx - wPx / 2f).roundToInt()
                         val offsetY = (renderY * heightPx - hPx / 2f).roundToInt()
 
@@ -605,8 +641,13 @@ fun OverlayGridEditorScreen(
 
             Surface(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 12.dp, start = 16.dp, end = 16.dp)
+                    .align(if (toolbarDockedBottom) Alignment.BottomCenter else Alignment.TopCenter)
+                    .padding(
+                        top = if (toolbarDockedBottom) 0.dp else 12.dp,
+                        bottom = if (toolbarDockedBottom) 12.dp else 0.dp,
+                        start = 16.dp,
+                        end = 16.dp
+                    )
                     .widthIn(max = 580.dp)
                     .pointerInput(Unit) {
                         awaitEachGesture {
@@ -626,14 +667,32 @@ fun OverlayGridEditorScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            IconButton(
+                                onClick = { toolbarDockedBottom = !toolbarDockedBottom }
+                            ) {
+                                Icon(
+                                    imageVector = if (toolbarDockedBottom) {
+                                        Icons.Default.VerticalAlignTop
+                                    } else {
+                                        Icons.Default.VerticalAlignBottom
+                                    },
+                                    contentDescription = if (toolbarDockedBottom) "Dock toolbar at top" else "Dock toolbar at bottom",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(4.dp))
                             Icon(
                                 Icons.Default.Tune,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp)
                             )
-                            Spacer(Modifier.width(8.dp))
+                            Spacer(Modifier.width(6.dp))
                             Text(
                                 text = "${selectedType.displayName} • ${(selectedPlacement.scale * 100).roundToInt()}%",
                                 style = MaterialTheme.typography.labelLarge
@@ -706,7 +765,7 @@ fun OverlayGridEditorScreen(
                         ) {
                             IconButton(
                                 onClick = {
-                                    val nextRows = (preset.gridRows - 2).coerceIn(
+                                    val nextRows = (preset.gridRows - 1).coerceIn(
                                         GridSnapper.MIN_GRID_ROWS,
                                         GridSnapper.MAX_GRID_ROWS
                                     )
@@ -723,7 +782,7 @@ fun OverlayGridEditorScreen(
                             )
                             IconButton(
                                 onClick = {
-                                    val nextRows = (preset.gridRows + 2).coerceIn(
+                                    val nextRows = (preset.gridRows + 1).coerceIn(
                                         GridSnapper.MIN_GRID_ROWS,
                                         GridSnapper.MAX_GRID_ROWS
                                     )
@@ -732,6 +791,39 @@ fun OverlayGridEditorScreen(
                                 enabled = preset.gridRows < GridSnapper.MAX_GRID_ROWS
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = "More grid rows", modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+
+                    if (selectedType.supportsShape || selectedType.supportsToggle) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            if (selectedType.supportsShape) {
+                                val currentShape = selectedPlacement.resolvedShape()
+                                ButtonShape.entries.forEach { shapeOption ->
+                                    FilterChip(
+                                        selected = currentShape == shapeOption,
+                                        onClick = {
+                                            onUpdatePreset(
+                                                preset.updatePlacement(selectedPlacement.copy(shape = shapeOption))
+                                            )
+                                        },
+                                        label = { Text(shapeOption.label, style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
+                            }
+                            if (selectedType.supportsToggle) {
+                                FilterChip(
+                                    selected = selectedPlacement.toggleable,
+                                    onClick = {
+                                        onUpdatePreset(
+                                            preset.updatePlacement(selectedPlacement.copy(toggleable = !selectedPlacement.toggleable))
+                                        )
+                                    },
+                                    label = { Text("Toggle", style = MaterialTheme.typography.labelSmall) }
+                                )
                             }
                         }
                     }
