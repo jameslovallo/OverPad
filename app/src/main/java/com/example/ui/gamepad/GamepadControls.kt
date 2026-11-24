@@ -84,6 +84,13 @@ fun ButtonShape.toComposeShape(): Shape = when (this) {
     ButtonShape.SQUARE -> RoundedCornerShape(percent = 6)
 }
 
+internal const val MAX_BUTTON_ICON_HEIGHT_FRACTION = 0.48f
+
+internal fun buttonIconSizeDp(
+    buttonWidthDp: Float,
+    buttonHeightDp: Float
+): Float = minOf(buttonWidthDp, buttonHeightDp).coerceAtLeast(0f) * MAX_BUTTON_ICON_HEIGHT_FRACTION
+
 @Composable
 fun GamepadControlNode(
     placement: ControlPlacement,
@@ -920,7 +927,7 @@ private fun TriggerDragAimWidget(
         GamepadControlIcon(
             controlType = controlType,
             tint = if (effectivePressed) Color.White else TextPrimary,
-            size = minDim * 0.68f
+            size = buttonIconSizeDp(maxWidth.value, maxHeight.value).dp
         )
         if (toggleable) {
             ToggleLatchIndicator(
@@ -1125,15 +1132,10 @@ private fun CapsuleGamepadButton(
     ) {
         val minDim = minOf(maxWidth, maxHeight)
         if (controlType.hasCustomIcon()) {
-            val iconSize = when (controlType) {
-                ControlType.BUTTON_LB, ControlType.BUTTON_RB -> minDim * 0.68f
-                ControlType.BUTTON_L3, ControlType.BUTTON_R3 -> minDim * 0.60f
-                else -> minDim * 0.54f
-            }
             GamepadControlIcon(
                 controlType = controlType,
                 tint = contentTint,
-                size = iconSize
+                size = buttonIconSizeDp(maxWidth.value, maxHeight.value).dp
             )
         } else {
             Text(
@@ -1223,12 +1225,11 @@ private fun SettingsOverlayButton(
             .then(touchMod),
         contentAlignment = Alignment.Center
     ) {
-        val minDim = minOf(maxWidth, maxHeight)
         Icon(
             imageVector = Icons.Default.Settings,
             contentDescription = "OverPad Overlay Settings",
             tint = ElectricCyan,
-            modifier = Modifier.size(minDim * 0.48f)
+            modifier = Modifier.size(buttonIconSizeDp(maxWidth.value, maxHeight.value).dp)
         )
     }
 }

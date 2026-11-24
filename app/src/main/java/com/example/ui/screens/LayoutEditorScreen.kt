@@ -666,7 +666,7 @@ fun LayoutEditorScreen(
                                         .clickable { onSelectControl(type) }
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {

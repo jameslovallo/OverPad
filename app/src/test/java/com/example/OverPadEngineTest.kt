@@ -635,4 +635,40 @@ class OverPadEngineTest {
             com.example.ui.gamepad.DPadFlickController.outerArmDirectionAt(290f, 116f, width = 336, height = 232)
         )
     }
+
+    @Test
+    fun buttonIconSize_neverExceedsHalfOfButtonHeightAcrossAllShapesAndScales() {
+        val iconButtons = listOf(
+            ControlType.TRIGGER_LT, ControlType.TRIGGER_RT,
+            ControlType.BUTTON_LB, ControlType.BUTTON_RB,
+            ControlType.BUTTON_L3, ControlType.BUTTON_R3,
+            ControlType.BUTTON_BACK, ControlType.BUTTON_START,
+            ControlType.SETTINGS
+        )
+        val scales = listOf(0.55f, 0.85f, 1.0f, 1.35f, 1.65f)
+        iconButtons.forEach { type ->
+            ButtonShape.entries.forEach { shape ->
+                scales.forEach { scale ->
+                    val placement = ControlPlacement(
+                        type = type,
+                        xFraction = 0.5f,
+                        yFraction = 0.5f,
+                        scale = scale,
+                        shape = shape
+                    )
+                    val w = placement.effectiveWidthDp()
+                    val h = placement.effectiveHeightDp()
+                    val iconSize = com.example.ui.gamepad.buttonIconSizeDp(w, h)
+                    assertTrue(
+                        "Icon height ($iconSize) must be <= 50% of button height ($h) for $type/$shape/$scale",
+                        iconSize <= h * 0.50f + 0.0001f
+                    )
+                    assertTrue(
+                        "Icon size ($iconSize) must also fit within button width ($w) for $type/$shape/$scale",
+                        iconSize <= w * 0.50f + 0.0001f
+                    )
+                }
+            }
+        }
+    }
 }
