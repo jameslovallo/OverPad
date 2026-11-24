@@ -411,15 +411,32 @@ class OverPadEngineTest {
         assertEquals(54f * 1.45f * 1.5f, pillA.effectiveWidthDp(), 0.01f)
         assertEquals(54f * 1.5f, pillA.effectiveHeightDp(), 0.01f)
 
-        // Setting SQUARE on rectangular trigger RT produces 1:1 square >= 48dp
+        // All buttons share the same 54dp base scaling across shapes (including triggers)
+        val buttonTypes = listOf(
+            ControlType.BUTTON_A, ControlType.BUTTON_B, ControlType.BUTTON_X, ControlType.BUTTON_Y,
+            ControlType.BUTTON_LB, ControlType.BUTTON_RB,
+            ControlType.TRIGGER_LT, ControlType.TRIGGER_RT,
+            ControlType.BUTTON_L3, ControlType.BUTTON_R3,
+            ControlType.BUTTON_BACK, ControlType.BUTTON_START,
+            ControlType.SETTINGS
+        )
+        buttonTypes.forEach { type ->
+            assertEquals(54f, type.baseWidthDp, 0.01f)
+            assertEquals(54f, type.baseHeightDp, 0.01f)
+            assertEquals(54f to 54f, type.sizeDpFor(ButtonShape.CIRCLE))
+            assertEquals(54f to 54f, type.sizeDpFor(ButtonShape.ROUNDED))
+            assertEquals(54f to 54f, type.sizeDpFor(ButtonShape.SQUARE))
+            assertEquals(54f * 1.45f to 54f, type.sizeDpFor(ButtonShape.PILL))
+        }
+
         val squareRt = ControlPlacement(
             type = ControlType.TRIGGER_RT,
             xFraction = 0.85f,
             yFraction = 0.25f,
             shape = ButtonShape.SQUARE
         )
-        assertEquals(65f, squareRt.effectiveWidthDp(), 0.01f)
-        assertEquals(65f, squareRt.effectiveHeightDp(), 0.01f)
+        assertEquals(54f, squareRt.effectiveWidthDp(), 0.01f)
+        assertEquals(54f, squareRt.effectiveHeightDp(), 0.01f)
 
         // D-Pad supports shape customization while toggleable remains false
         assertTrue(ControlType.DPAD.supportsShape)
