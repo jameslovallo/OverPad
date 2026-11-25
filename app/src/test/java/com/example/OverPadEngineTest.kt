@@ -23,11 +23,22 @@ class OverPadEngineTest {
     @Test
     fun defaultPresets_includeFpsAndSelectiveVisibility() {
         val fps = DefaultPresets.fpsPro()
+        assertEquals("FPS Pro (Touch-Aim)", fps.name)
+        assertTrue(fps.leftMoveZoneEnabled)
         assertTrue(fps.fpsRightZoneEnabled)
         assertTrue(fps.triggerDragAimEnabled)
+        assertEquals(4.0f, fps.fpsLookSensitivity, 0.001f)
+        assertEquals(0.78f, fps.opacity, 0.001f)
+        assertFalse(fps.placementFor(ControlType.LEFT_STICK).visible)
         assertFalse(fps.placementFor(ControlType.RIGHT_STICK).visible)
-        assertTrue(fps.placementFor(ControlType.LEFT_STICK).visible)
+        assertTrue(fps.placementFor(ControlType.DPAD).visible)
+        assertTrue(fps.placementFor(ControlType.TRIGGER_LT).visible)
+        assertTrue(fps.placementFor(ControlType.TRIGGER_LT).toggleable)
+        assertEquals(ButtonShape.CIRCLE, fps.placementFor(ControlType.TRIGGER_LT).shape)
         assertTrue(fps.placementFor(ControlType.TRIGGER_RT).visible)
+        assertEquals(1.5f, fps.placementFor(ControlType.TRIGGER_RT).scale, 0.001f)
+        assertEquals(ButtonShape.PILL, fps.placementFor(ControlType.BUTTON_A).shape)
+        assertEquals(ButtonShape.PILL, fps.placementFor(ControlType.SETTINGS).shape)
 
         val retro = DefaultPresets.retro2D()
         assertFalse(retro.placementFor(ControlType.LEFT_STICK).visible)
@@ -37,6 +48,11 @@ class OverPadEngineTest {
 
         DefaultPresets.all.forEach { preset ->
             assertEquals(GridSnapper.DEFAULT_GRID_ROWS, preset.gridRows)
+            preset.controls.forEach { placement ->
+                assertTrue(placement.scale in 0.5f..1.8f)
+            }
+        }
+        listOf(DefaultPresets.consoleFull(), DefaultPresets.actionArena(), retro).forEach { preset ->
             preset.controls.forEach { placement ->
                 assertEquals(1.0f, placement.scale, 0.0001f)
             }
@@ -252,6 +268,9 @@ class OverPadEngineTest {
         assertTrue(uinputReg.contains("\"UI_SET_ABSBIT\""))
         assertTrue(uinputReg.contains("\"Microsoft X-Box 360 pad\""))
         assertTrue(uinputReg.contains("\"abs_info\":["))
+        assertTrue(uinputReg.contains("\"fuzz\":0,\"flat\":0"))
+        assertFalse(uinputReg.contains("\"fuzz\":16"))
+        assertFalse(uinputReg.contains("\"flat\":128"))
 
         val uinputInject = com.example.shizuku.VirtualXboxHidProtocol.buildUinputInjectJson(1, listOf(1, 304, 1, 0, 0, 0))
         assertTrue(uinputInject.contains("\"command\":\"inject\""))
@@ -259,13 +278,13 @@ class OverPadEngineTest {
     }
 
     @Test
-    fun fpsMouseLookFilter_isRefreshRateIndependentWith2xTo4xSensitivityAndNoMidSwipeThrottle() {
+    fun fpsMouseLookFilter_isSmoothResponsiveAndRefreshRateIndependentForMobileShooterFeel() {
         val fps = DefaultPresets.fpsPro()
         val console = DefaultPresets.consoleFull()
         assertTrue(fps.triggerDragAimEnabled)
         assertTrue(console.triggerDragAimEnabled)
-        assertTrue(fps.fpsLookSensitivity in 2.0f..4.0f)
-        assertTrue(console.fpsLookSensitivity in 2.0f..4.0f)
+        assertTrue(fps.fpsLookSensitivity in com.example.xinput.TouchMouseLookFilter.MIN_SENSITIVITY..com.example.xinput.TouchMouseLookFilter.MAX_SENSITIVITY)
+        assertTrue(console.fpsLookSensitivity in com.example.xinput.TouchMouseLookFilter.MIN_SENSITIVITY..com.example.xinput.TouchMouseLookFilter.MAX_SENSITIVITY)
 
         // 1. Sub-jitter micro wobble stays exact zero
         val jitterFilter = com.example.xinput.TouchMouseLookFilter()
@@ -275,7 +294,7 @@ class OverPadEngineTest {
         assertEquals(0f, jy, 0.0001f)
 
         // 2. Same physical thumb speed at 60Hz (16ms steps) vs 120Hz (8ms steps) reaches matching deflection,
-        // and interleaved 12ms decayIfIdle checks during a 60Hz swipe must not slow it down
+        // and interleaved decayIfIdle checks during a 60Hz swipe must not slow it down
         val filter60 = com.example.xinput.TouchMouseLookFilter()
         val filter120 = com.example.xinput.TouchMouseLookFilter()
         filter60.onPointerDown(0L)
@@ -294,63 +313,72 @@ class OverPadEngineTest {
         assertEquals(out60.first, out120.first, 0.04f)
         assertEquals(0f, out60.second, 0.001f)
 
-        // 3. Sensitivity clamps to [2.0x, 4.0x]
+        // 3. Sensitivity clamps to [1.0x, 6.0x]
         val belowMin = com.example.xinput.TouchMouseLookFilter().apply { onPointerDown(0L) }
-            .onPointerMove(1.4f, 0f, 16L, sensitivity = 0.5f, antiDeadzone = 0.14f)
+            .onPointerMove(1.4f, 0f, 16L, sensitivity = 0.2f, antiDeadzone = 0.14f)
         val atMin = com.example.xinput.TouchMouseLookFilter().apply { onPointerDown(0L) }
-            .onPointerMove(1.4f, 0f, 16L, sensitivity = 2.0f, antiDeadzone = 0.14f)
+            .onPointerMove(1.4f, 0f, 16L, sensitivity = 1.0f, antiDeadzone = 0.14f)
         assertEquals(atMin.first, belowMin.first, 0.001f)
 
         val aboveMax = com.example.xinput.TouchMouseLookFilter().apply { onPointerDown(0L) }
-            .onPointerMove(1.4f, 0f, 16L, sensitivity = 6.0f, antiDeadzone = 0.14f)
+            .onPointerMove(1.4f, 0f, 16L, sensitivity = 8.0f, antiDeadzone = 0.14f)
         val atMax = com.example.xinput.TouchMouseLookFilter().apply { onPointerDown(0L) }
-            .onPointerMove(1.4f, 0f, 16L, sensitivity = 4.0f, antiDeadzone = 0.14f)
+            .onPointerMove(1.4f, 0f, 16L, sensitivity = 6.0f, antiDeadzone = 0.14f)
         assertEquals(atMax.first, aboveMax.first, 0.001f)
         assertTrue(atMax.first > atMin.first)
 
-        // 4. Fast flick saturates smoothly to max deflection in diagonal direction
+        // 4. Vertical pitch gain gives responsive up/down look compared to equal horizontal motion
+        val horizOnly = com.example.xinput.TouchMouseLookFilter().apply { onPointerDown(0L) }
+            .onPointerMove(1.2f, 0f, 16L, sensitivity = 2.5f, antiDeadzone = 0.14f)
+        val vertOnly = com.example.xinput.TouchMouseLookFilter().apply { onPointerDown(0L) }
+            .onPointerMove(0f, 1.2f, 16L, sensitivity = 2.5f, antiDeadzone = 0.14f)
+        assertTrue("Vertical look (${vertOnly.second}) should be boosted over horizontal (${horizOnly.first})",
+            kotlin.math.abs(vertOnly.second) > kotlin.math.abs(horizOnly.first))
+
+        // 5. Fast flick saturates smoothly to max deflection in diagonal direction
         val flickFilter = com.example.xinput.TouchMouseLookFilter()
         flickFilter.onPointerDown(0L)
-        val (fx, fy) = flickFilter.onPointerMove(18f, -18f, 12L, sensitivity = 2.5f, antiDeadzone = 0.14f)
-        assertTrue(fx > 0.65f)
-        assertTrue(fy < -0.65f)
+        val (fx, fy) = flickFilter.onPointerMove(18f, -18f, 12L, sensitivity = 4.0f, antiDeadzone = 0.14f)
+        assertTrue(fx > 0.50f)
+        assertTrue(fy < -0.75f)
+        assertTrue(kotlin.math.hypot(fx, fy) > 0.99f)
 
-        // 5. Idle decay glides velocity back to exact zero smoothly after idle threshold (~34ms) and then stops emitting
+        // 6. Idle decay glides velocity back to exact zero smoothly after idle threshold (~34ms) and then stops emitting
         var settledToZero = false
         for (step in 1..20) {
-            val decayed = flickFilter.decayIfIdle(12L + 36L + step * 12L, sensitivity = 2.5f, antiDeadzone = 0.14f)
+            val decayed = flickFilter.decayIfIdle(12L + 36L + step * 12L, sensitivity = 4.0f, antiDeadzone = 0.14f)
             if (decayed != null && decayed.first == 0f && decayed.second == 0f) {
                 settledToZero = true
                 break
             }
         }
         assertTrue(settledToZero)
-        assertEquals(null, flickFilter.decayIfIdle(500L, sensitivity = 2.5f))
+        assertEquals(null, flickFilter.decayIfIdle(500L, sensitivity = 4.0f))
 
-        // 6. Progressive precision + acceleration curve: slow tracking stays controlled near anti-deadzone
-        // while fast swipes accelerate non-linearly instead of saturating prematurely
-        fun steadyOutputForSpeed(dpPerSec: Float): Float {
+        // 7. Smooth anti-deadzone ramp + crisp sensitivity 4.0 response without a discrete low-speed jump
+        fun steadyOutputForSpeed(dpPerSec: Float, sensitivity: Float): Float {
             val f = com.example.xinput.TouchMouseLookFilter().apply { onPointerDown(0L) }
             val stepDp = dpPerSec * 0.016f
             var out = 0f
             for (frame in 1..8) {
-                out = f.onPointerMove(stepDp, 0f, frame * 16L, sensitivity = 2.5f, antiDeadzone = 0.14f).first
+                out = f.onPointerMove(stepDp, 0f, frame * 16L, sensitivity = sensitivity, antiDeadzone = 0.14f).first
             }
             return out
         }
-        val slowAim = steadyOutputForSpeed(60f)
-        val mediumPan = steadyOutputForSpeed(300f)
-        val fastTurn = steadyOutputForSpeed(600f)
-        assertTrue("Slow aim ($slowAim) should stay in fine micro-aim band", slowAim in 0.145f..0.22f)
-        assertTrue("Turn acceleration should ramp steeper at higher speed", (fastTurn - mediumPan) > (mediumPan - slowAim))
+        val creep = steadyOutputForSpeed(6f, sensitivity = 2.5f)
+        val slowAim = steadyOutputForSpeed(45f, sensitivity = 2.5f)
+        val normalPanAt4 = steadyOutputForSpeed(120f, sensitivity = 4.0f)
+        assertTrue("Micro creep ($creep) should ramp smoothly from zero instead of jumping straight to 0.14", creep in 0.02f..0.139f)
+        assertTrue("Slow aim ($slowAim) should clear deadzone smoothly", slowAim in 0.16f..0.40f)
+        assertTrue("Normal thumb pan at 4.0x ($normalPanAt4) should feel crisp and responsive", normalPanAt4 > 0.55f)
 
-        // 7. Direction reversal snaps cleanly past zero without sluggish glide lag
+        // 8. Direction reversal snaps cleanly past zero without sluggish glide lag
         val reversalFilter = com.example.xinput.TouchMouseLookFilter().apply { onPointerDown(0L) }
         for (i in 1..4) {
-            reversalFilter.onPointerMove(6.4f, 0f, i * 16L, sensitivity = 2.5f, antiDeadzone = 0.14f)
+            reversalFilter.onPointerMove(6.4f, 0f, i * 16L, sensitivity = 4.0f, antiDeadzone = 0.14f)
         }
-        val (revX, _) = reversalFilter.onPointerMove(-6.4f, 0f, 80L, sensitivity = 2.5f, antiDeadzone = 0.14f)
-        assertTrue("Immediate reversal should turn negative on first opposing swipe ($revX)", revX < -0.14f)
+        val (revX, _) = reversalFilter.onPointerMove(-6.4f, 0f, 80L, sensitivity = 4.0f, antiDeadzone = 0.14f)
+        assertTrue("Immediate reversal should turn negative on first opposing swipe ($revX)", revX < -0.25f)
     }
 
     @Test
@@ -562,8 +590,10 @@ class OverPadEngineTest {
         assertEquals(1.00f, GridSnapper.snapOpacity(1.20f), 0.0001f)
 
         assertEquals(2.60f, com.example.xinput.TouchMouseLookFilter.snapSensitivity(2.58f), 0.0001f)
-        assertEquals(2.00f, com.example.xinput.TouchMouseLookFilter.snapSensitivity(1.20f), 0.0001f)
-        assertEquals(4.00f, com.example.xinput.TouchMouseLookFilter.snapSensitivity(5.50f), 0.0001f)
+        assertEquals(1.20f, com.example.xinput.TouchMouseLookFilter.snapSensitivity(1.20f), 0.0001f)
+        assertEquals(1.00f, com.example.xinput.TouchMouseLookFilter.snapSensitivity(0.40f), 0.0001f)
+        assertEquals(5.50f, com.example.xinput.TouchMouseLookFilter.snapSensitivity(5.50f), 0.0001f)
+        assertEquals(6.00f, com.example.xinput.TouchMouseLookFilter.snapSensitivity(7.50f), 0.0001f)
 
         assertEquals(0.14f, com.example.xinput.TouchMouseLookFilter.snapAntiDeadzone(0.149f), 0.0001f)
         assertEquals(0.00f, com.example.xinput.TouchMouseLookFilter.snapAntiDeadzone(-0.10f), 0.0001f)

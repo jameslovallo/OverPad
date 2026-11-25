@@ -80,6 +80,9 @@ class ShizukuBridgeManager(private val context: Context) {
     private var injector: IXInputInjector? = null
     @Volatile
     private var overlayActive = false
+    private val sendLock = Any()
+    private var pendingStateToSend: XInputState? = null
+    private var isSendingState = false
     private var isBound = false
     private var listenersRegistered = false
 
@@ -292,26 +295,67 @@ class ShizukuBridgeManager(private val context: Context) {
 
     fun pushXInputState(state: XInputState) {
         if (!overlayActive) return
-        val remote = injector ?: return
+        if (injector == null) return
+        val shouldStartDrain: Boolean
+        synchronized(sendLock) {
+            pendingStateToSend = state
+            if (isSendingState) {
+                shouldStartDrain = false
+            } else {
+                isSendingState = true
+                shouldStartDrain = true
+            }
+        }
+        if (!shouldStartDrain) return
+
         binderScope.launch {
-            if (!overlayActive) return@launch
-            runCatching {
-                remote.sendGamepadState(
-                    state.buttonsMask,
-                    state.leftTrigger,
-                    state.rightTrigger,
-                    state.thumbLX,
-                    state.thumbLY,
-                    state.thumbRX,
-                    state.thumbRY,
-                    state.hatX,
-                    state.hatY
-                )
-                _status.value = _status.value.copy(injectedCount = _status.value.injectedCount + 1L)
-            }.onFailure {
-                injector = null
-                isBound = false
-                _status.value = _status.value.copy(isServiceConnected = false)
+            while (true) {
+                val nextState = synchronized(sendLock) {
+                    val s = pendingStateToSend
+                    pendingStateToSend = null
+                    if (s == null || !overlayActive) {
+                        isSendingState = false
+                        null
+                    } else {
+                        s
+                    }
+                } ?: break
+
+                val remote = injector
+                if (remote == null) {
+                    synchronized(sendLock) {
+                        pendingStateToSend = null
+                        isSendingState = false
+                    }
+                    break
+                }
+
+                val ok = runCatching {
+                    remote.sendGamepadState(
+                        nextState.buttonsMask,
+                        nextState.leftTrigger,
+                        nextState.rightTrigger,
+                        nextState.thumbLX,
+                        nextState.thumbLY,
+                        nextState.thumbRX,
+                        nextState.thumbRY,
+                        nextState.hatX,
+                        nextState.hatY
+                    )
+                    _status.value = _status.value.copy(injectedCount = _status.value.injectedCount + 1L)
+                    true
+                }.getOrDefault(false)
+
+                if (!ok) {
+                    injector = null
+                    isBound = false
+                    _status.value = _status.value.copy(isServiceConnected = false)
+                    synchronized(sendLock) {
+                        pendingStateToSend = null
+                        isSendingState = false
+                    }
+                    break
+                }
             }
         }
     }

@@ -811,7 +811,7 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
 
     companion object {
         private const val INJECT_INPUT_EVENT_MODE_ASYNC = 0
-        private const val AXIS_EPSILON = 0.004f
+        private const val AXIS_EPSILON = 0.0005f
 
         private val XINPUT_BIT_TO_LINUX_KEY = listOf(
             XInputState.XINPUT_GAMEPAD_A to VirtualXboxHidProtocol.BTN_A,

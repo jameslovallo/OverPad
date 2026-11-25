@@ -2,18 +2,19 @@ package com.example.xinput
 
 import kotlin.math.exp
 import kotlin.math.hypot
-import kotlin.math.pow
 
 /**
- * Translates raw touch displacement deltas (px) into frame-rate-independent,
- * console-friendly mouse-like FPS Right Thumbstick (RX, RY) output.
+ * Translates raw touch displacement deltas (dp) into smooth, frame-rate-independent,
+ * mobile-shooter-style Right Thumbstick (RX, RY) output.
  *
- * Tuned for controller-stick touch aiming (e.g., Halo CE / cloud console shooters):
- * 1. Velocity-normalized (`dp / dt`) so 60Hz, 90Hz, and 120Hz+ touch rates produce identical turn speed.
- * 2. Asymmetric EMA smoothing with instant direction-reversal attack (8ms attack on acceleration or
- *    reversal, 18ms glide to suppress digitizer jitter).
- * 3. Progressive precision-plus-acceleration curve (`0.55 * x^1.35 + 0.45 * x^2.55`) across a wide
- *    thumb-speed range so micro-aim stays steady in aim-assist zones while fast swipes accelerate cleanly.
+ * Design goals for standard mobile FPS feel:
+ * 1. Raw, linear-dominant response (75% linear + 25% smooth turn boost) calibrated around
+ *    real thumb speeds so normal drags and flicks feel crisp and immediate.
+ * 2. Balanced vertical pitch gain (`VERTICAL_SENSITIVITY_GAIN = 1.50f`) so up/down look matches
+ *    horizontal speed on landscape screens and overcomes console FPS pitch damping.
+ * 3. Smooth anti-deadzone ramp at low speeds (no discrete step jump between 0 and anti-deadzone)
+ *    plus instant direction-reversal attack (`6ms`) and smooth glide (`14ms`) to absorb
+ *    touch-sample timing variance without stepping.
  * 4. Smooth exponential decay to exact zero when the thumb pauses, and instant zero on lift.
  */
 class TouchMouseLookFilter {
@@ -55,7 +56,7 @@ class TouchMouseLookFilter {
                 16L
             }
             rawDt <= 0L -> 8L
-            else -> rawDt.coerceIn(4L, 64L)
+            else -> rawDt.coerceIn(7L, 52L)
         }
         lastSampleTimeMs = uptimeMs
         lastDecayTimeMs = uptimeMs
@@ -68,13 +69,13 @@ class TouchMouseLookFilter {
 
         val dtSec = dtMs / 1000f
         val instVx = dxDp / dtSec
-        val instVy = dyDp / dtSec
+        val instVy = (dyDp * VERTICAL_SENSITIVITY_GAIN) / dtSec
 
         val instSpeed = hypot(instVx, instVy)
         val curSpeed = hypot(velX, velY)
         val isReversing = (velX * instVx + velY * instVy) < 0f
         val tauMs = if (instSpeed > curSpeed || isReversing) TAU_ATTACK_MS else TAU_GLIDE_MS
-        val alpha = (1f - exp(-dtMs.toFloat() / tauMs)).coerceIn(0.08f, 1f)
+        val alpha = (1f - exp(-dtMs.toFloat() / tauMs)).coerceIn(0.12f, 1f)
 
         velX += alpha * (instVx - velX)
         velY += alpha * (instVy - velY)
@@ -140,11 +141,13 @@ class TouchMouseLookFilter {
         val clampedBoost = antiDeadzone.coerceIn(0f, MAX_ANTI_DEADZONE)
 
         val scaled = ((speed * clampedSens) / REFERENCE_MAX_SPEED_DP_PER_SEC).coerceIn(0f, 1f)
-        val precisionCurve = scaled.pow(PRECISION_EXPONENT)
-        val accelCurve = scaled.pow(ACCEL_EXPONENT)
-        val curved = ((1f - ACCEL_BLEND_WEIGHT) * precisionCurve + ACCEL_BLEND_WEIGHT * accelCurve)
+        val curved = ((1f - ACCEL_BLEND_WEIGHT) * scaled + ACCEL_BLEND_WEIGHT * (scaled * scaled))
             .coerceIn(0f, 1f)
-        val magnitude = (clampedBoost + (1f - clampedBoost) * curved).coerceIn(0f, 1f)
+
+        // Smooth ease-out ramp into the anti-deadzone floor so micro-aim never steps at stop threshold
+        val boostRamp = (scaled / ANTI_DEADZONE_RAMP_THRESHOLD).coerceIn(0f, 1f)
+        val effectiveBoost = clampedBoost * boostRamp * (2f - boostRamp)
+        val magnitude = (effectiveBoost + (1f - effectiveBoost) * curved).coerceIn(0f, 1f)
 
         val outX = ((vx / speed) * magnitude).coerceIn(-1f, 1f)
         val outY = ((vy / speed) * magnitude).coerceIn(-1f, 1f)
@@ -153,17 +156,20 @@ class TouchMouseLookFilter {
     }
 
     companion object {
-        const val MIN_SENSITIVITY = 2.0f
-        const val MAX_SENSITIVITY = 4.0f
+        const val MIN_SENSITIVITY = 1.0f
+        const val MAX_SENSITIVITY = 6.0f
         const val DEFAULT_SENSITIVITY = 2.5f
         const val SENSITIVITY_STEP = 0.10f
-        const val SENSITIVITY_STEPS = 19
+        const val SENSITIVITY_STEPS = 49
 
         const val DEFAULT_ANTI_DEADZONE = 0.14f
         const val MIN_ANTI_DEADZONE = 0.00f
         const val MAX_ANTI_DEADZONE = 0.28f
         const val ANTI_DEADZONE_STEP = 0.02f
         const val ANTI_DEADZONE_STEPS = 13
+
+        const val VERTICAL_SENSITIVITY_GAIN = 1.50f
+        const val IDLE_HOLD_THRESHOLD_MS = 34L
 
         fun snapSensitivity(rawSensitivity: Float): Float {
             val stepped = Math.round(rawSensitivity / SENSITIVITY_STEP) * SENSITIVITY_STEP
@@ -177,17 +183,15 @@ class TouchMouseLookFilter {
                 .coerceIn(MIN_ANTI_DEADZONE, MAX_ANTI_DEADZONE)
         }
 
-        private const val REFERENCE_MAX_SPEED_DP_PER_SEC = 2150f
-        private const val PRECISION_EXPONENT = 1.35f
-        private const val ACCEL_EXPONENT = 2.55f
-        private const val ACCEL_BLEND_WEIGHT = 0.45f
-        private const val JITTER_FLOOR_DP = 0.06f
-        private const val STOP_SPEED_DP_PER_SEC = 6.0f
+        private const val REFERENCE_MAX_SPEED_DP_PER_SEC = 760f
+        private const val ACCEL_BLEND_WEIGHT = 0.25f
+        private const val ANTI_DEADZONE_RAMP_THRESHOLD = 0.08f
+        private const val JITTER_FLOOR_DP = 0.03f
+        private const val STOP_SPEED_DP_PER_SEC = 2.0f
 
-        private const val TAU_ATTACK_MS = 8f
-        private const val TAU_GLIDE_MS = 18f
-        private const val TAU_DECAY_MS = 12f
-        private const val IDLE_HOLD_THRESHOLD_MS = 34L
+        private const val TAU_ATTACK_MS = 6f
+        private const val TAU_GLIDE_MS = 14f
+        private const val TAU_DECAY_MS = 10f
         private const val PAUSE_RESET_MS = 120L
     }
 }

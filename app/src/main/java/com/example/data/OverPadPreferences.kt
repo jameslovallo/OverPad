@@ -12,6 +12,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.example.model.DefaultPresets
 import com.example.xinput.TouchMouseLookFilter
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.overPadDataStore: DataStore<Preferences> by preferencesDataStore(name = "operpad_prefs")
@@ -39,6 +40,7 @@ class OverPadPreferences(private val context: Context) {
         val ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         val FPS_ANTI_DEADZONE = floatPreferencesKey("fps_anti_deadzone")
         val NOTIFICATION_QUICK_ACTION = booleanPreferencesKey("notification_quick_action")
+        val BUILT_IN_FPS_PRO_REVISION = intPreferencesKey("built_in_fps_pro_revision")
     }
 
     val settingsFlow: Flow<OverPadUserSettings> = context.overPadDataStore.data.map { prefs ->
@@ -91,5 +93,13 @@ class OverPadPreferences(private val context: Context) {
 
     suspend fun setNotificationQuickActionEnabled(enabled: Boolean) {
         context.overPadDataStore.edit { it[Keys.NOTIFICATION_QUICK_ACTION] = enabled }
+    }
+
+    suspend fun getBuiltInFpsProRevision(): Int {
+        return context.overPadDataStore.data.first()[Keys.BUILT_IN_FPS_PRO_REVISION] ?: 0
+    }
+
+    suspend fun setBuiltInFpsProRevision(revision: Int) {
+        context.overPadDataStore.edit { it[Keys.BUILT_IN_FPS_PRO_REVISION] = revision }
     }
 }

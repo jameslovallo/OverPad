@@ -30,6 +30,15 @@ class OverPadRepository(
         if (missingDefaults.isNotEmpty()) {
             dao.upsertPresets(missingDefaults.map { it.toEntity() })
         }
+        val currentRevision = preferences.getBuiltInFpsProRevision()
+        if (currentRevision < CURRENT_FPS_PRO_REVISION) {
+            dao.upsertPreset(DefaultPresets.fpsPro().toEntity())
+            preferences.setBuiltInFpsProRevision(CURRENT_FPS_PRO_REVISION)
+        }
+    }
+
+    private companion object {
+        const val CURRENT_FPS_PRO_REVISION = 2
     }
 
     suspend fun savePreset(preset: ControllerPreset) {
