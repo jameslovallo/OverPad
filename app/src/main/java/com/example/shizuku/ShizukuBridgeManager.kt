@@ -83,6 +83,7 @@ class ShizukuBridgeManager(private val context: Context) {
     private val sendLock = Any()
     private var pendingStateToSend: XInputState? = null
     private var isSendingState = false
+    private var localInjectedCount = 0L
     private var isBound = false
     private var listenersRegistered = false
 
@@ -342,7 +343,10 @@ class ShizukuBridgeManager(private val context: Context) {
                         nextState.hatX,
                         nextState.hatY
                     )
-                    _status.value = _status.value.copy(injectedCount = _status.value.injectedCount + 1L)
+                    localInjectedCount += 1L
+                    if (localInjectedCount == 1L || localInjectedCount % 24L == 0L) {
+                        _status.value = _status.value.copy(injectedCount = localInjectedCount)
+                    }
                     true
                 }.getOrDefault(false)
 

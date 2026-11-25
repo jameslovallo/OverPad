@@ -4,40 +4,102 @@ import kotlin.math.exp
 import kotlin.math.hypot
 
 /**
- * Translates raw touch displacement deltas (dp) into smooth, frame-rate-independent,
- * mobile-shooter-style Right Thumbstick (RX, RY) output.
+ * Translates touchscreen swipe deltas (`dp`) into smooth, frame-rate-independent,
+ * mobile-shooter Right Thumbstick (RX, RY) output using a VSync-paced spring anchor.
  *
- * Design goals for standard mobile FPS feel:
- * 1. Raw, linear-dominant response (75% linear + 25% smooth turn boost) calibrated around
- *    real thumb speeds so normal drags and flicks feel crisp and immediate.
- * 2. Balanced vertical pitch gain (`VERTICAL_SENSITIVITY_GAIN = 1.50f`) so up/down look matches
- *    horizontal speed on landscape screens and overcomes console FPS pitch damping.
- * 3. Smooth anti-deadzone ramp at low speeds (no discrete step jump between 0 and anti-deadzone)
- *    plus instant direction-reversal attack (`6ms`) and smooth glide (`14ms`) to absorb
- *    touch-sample timing variance without stepping.
- * 4. Smooth exponential decay to exact zero when the thumb pauses, and instant zero on lift.
+ * Why this stays smooth with minimal intervention:
+ * 1. No `dx / dt` division on touch timestamps: raw `dp` deltas accumulate directly into a
+ *    trailing virtual stick offset, eliminating touch-IC timing jitter, 0-delta multi-touch
+ *    artifacts, and attack/glide mode switching.
+ * 2. Display-locked exponential relaxation (`stepFrame` via `withFrameNanos`) drains the anchor
+ *    smoothly at the exact VSync interval (`8.33ms` @ 120Hz, `16.67ms` @ 60Hz) with midpoint
+ *    sampling so 60Hz and 120Hz produce matching turn rates and silky low-speed tracking.
+ * 3. Balanced vertical pitch gain (`VERTICAL_SENSITIVITY_GAIN = 1.50f`) and a linear-clean curve
+ *    keep both horizontal and vertical aiming predictable and responsive.
  */
 class TouchMouseLookFilter {
 
-    private var velX = 0f
-    private var velY = 0f
+    private var offsetX = 0f
+    private var offsetY = 0f
     private var lastSampleTimeMs = 0L
-    private var lastDecayTimeMs = 0L
     private var lastEmittedZero = true
 
     @Synchronized
-    fun onPointerDown(uptimeMs: Long): Pair<Float, Float> {
-        velX = 0f
-        velY = 0f
+    fun onPointerDown(uptimeMs: Long = 0L): Pair<Float, Float> {
+        offsetX = 0f
+        offsetY = 0f
         lastSampleTimeMs = uptimeMs
-        lastDecayTimeMs = uptimeMs
         lastEmittedZero = true
         return 0f to 0f
     }
 
     /**
-     * Processes a pointer movement delta in density-independent pixels (`dp`).
-     * Returns raw screen-oriented stick output `(rx, ry)` where +Y is downward before any Y-inversion.
+     * Accumulates raw finger displacement (`dp`) without dividing by noisy touch timestamps.
+     * Call [stepFrame] once per VSync frame to emit stick output and advance the spring anchor.
+     */
+    @Synchronized
+    fun accumulateDelta(
+        dxDp: Float,
+        dyDp: Float,
+        sensitivity: Float
+    ) {
+        if (dxDp == 0f && dyDp == 0f) return
+        offsetX += dxDp
+        offsetY += dyDp * VERTICAL_SENSITIVITY_GAIN
+
+        val maxLeash = fullStickDp(sensitivity) * LEASH_HEADROOM
+        val mag = hypot(offsetX, offsetY)
+        if (mag > maxLeash && mag > 0f) {
+            val scale = maxLeash / mag
+            offsetX *= scale
+            offsetY *= scale
+        }
+    }
+
+    /**
+     * Advances the trailing spring anchor by one VSync frame (`dtMs`) and returns the
+     * screen-oriented stick deflection `(rx, ry)`, or `null` if already settled at zero.
+     */
+    @Synchronized
+    fun stepFrame(
+        dtMs: Float,
+        sensitivity: Float,
+        antiDeadzone: Float = DEFAULT_ANTI_DEADZONE
+    ): Pair<Float, Float>? {
+        val beforeMag = hypot(offsetX, offsetY)
+        if (beforeMag < ZERO_SNAP_DP) {
+            offsetX = 0f
+            offsetY = 0f
+            return if (lastEmittedZero) {
+                null
+            } else {
+                lastEmittedZero = true
+                0f to 0f
+            }
+        }
+
+        val clampedDt = dtMs.coerceIn(1f, 50f)
+        val decay = exp(-clampedDt / TAU_MS)
+        val afterX = offsetX * decay
+        val afterY = offsetY * decay
+
+        // Midpoint sampling across the frame keeps 60Hz/90Hz/120Hz steady-state deflection identical
+        val midX = 0.5f * (offsetX + afterX)
+        val midY = 0.5f * (offsetY + afterY)
+
+        if (hypot(afterX, afterY) < ZERO_SNAP_DP) {
+            offsetX = 0f
+            offsetY = 0f
+        } else {
+            offsetX = afterX
+            offsetY = afterY
+        }
+
+        return mapOffsetToStick(midX, midY, sensitivity, antiDeadzone)
+    }
+
+    /**
+     * Convenience wrapper for deterministic stepping in unit tests or non-VSync callers.
      */
     @Synchronized
     fun onPointerMove(
@@ -47,112 +109,64 @@ class TouchMouseLookFilter {
         sensitivity: Float,
         antiDeadzone: Float = DEFAULT_ANTI_DEADZONE
     ): Pair<Float, Float> {
-        val rawDt = uptimeMs - lastSampleTimeMs
-        val dtMs = when {
-            lastSampleTimeMs == 0L || rawDt > PAUSE_RESET_MS -> {
-                // Fresh stroke after pause: reset residual velocity so there is no lag spike
-                velX = 0f
-                velY = 0f
-                16L
-            }
-            rawDt <= 0L -> 8L
-            else -> rawDt.coerceIn(7L, 52L)
-        }
+        val rawDt = if (lastSampleTimeMs == 0L) 16L else (uptimeMs - lastSampleTimeMs)
+        val dtMs = rawDt.coerceIn(1L, 50L).toFloat()
         lastSampleTimeMs = uptimeMs
-        lastDecayTimeMs = uptimeMs
 
-        val stepMag = hypot(dxDp, dyDp)
-        if (stepMag < JITTER_FLOOR_DP && hypot(velX, velY) < STOP_SPEED_DP_PER_SEC) {
-            lastEmittedZero = true
-            return 0f to 0f
-        }
-
-        val dtSec = dtMs / 1000f
-        val instVx = dxDp / dtSec
-        val instVy = (dyDp * VERTICAL_SENSITIVITY_GAIN) / dtSec
-
-        val instSpeed = hypot(instVx, instVy)
-        val curSpeed = hypot(velX, velY)
-        val isReversing = (velX * instVx + velY * instVy) < 0f
-        val tauMs = if (instSpeed > curSpeed || isReversing) TAU_ATTACK_MS else TAU_GLIDE_MS
-        val alpha = (1f - exp(-dtMs.toFloat() / tauMs)).coerceIn(0.12f, 1f)
-
-        velX += alpha * (instVx - velX)
-        velY += alpha * (instVy - velY)
-
-        return mapVelocityToStick(velX, velY, sensitivity, antiDeadzone)
+        accumulateDelta(dxDp, dyDp, sensitivity)
+        return stepFrame(dtMs, sensitivity, antiDeadzone) ?: (0f to 0f)
     }
 
-    /**
-     * Smoothly decays velocity toward zero when the thumb rests stationary on glass.
-     * Uses an idle threshold > 2x a 60Hz frame so active 60Hz/90Hz/120Hz swipes are never throttled.
-     * Returns `null` if the finger moved recently or is already settled at zero.
-     */
     @Synchronized
     fun decayIfIdle(
         nowUptimeMs: Long,
         sensitivity: Float,
         antiDeadzone: Float = DEFAULT_ANTI_DEADZONE
     ): Pair<Float, Float>? {
-        val elapsedSinceMove = nowUptimeMs - lastSampleTimeMs
-        if (elapsedSinceMove < IDLE_HOLD_THRESHOLD_MS) return null
-        if (lastEmittedZero && velX == 0f && velY == 0f) return null
-
-        val dtDecayMs = (nowUptimeMs - lastDecayTimeMs).coerceIn(4L, 32L).toFloat()
-        lastDecayTimeMs = nowUptimeMs
-
-        val decayFactor = exp(-dtDecayMs / TAU_DECAY_MS)
-        velX *= decayFactor
-        velY *= decayFactor
-
-        if (hypot(velX, velY) < STOP_SPEED_DP_PER_SEC) {
-            velX = 0f
-            velY = 0f
-            lastEmittedZero = true
-            return 0f to 0f
-        }
-
-        return mapVelocityToStick(velX, velY, sensitivity, antiDeadzone)
+        val rawDt = (nowUptimeMs - lastSampleTimeMs).coerceIn(1L, 50L).toFloat()
+        lastSampleTimeMs = nowUptimeMs
+        return stepFrame(rawDt, sensitivity, antiDeadzone)
     }
 
     @Synchronized
     fun reset(): Pair<Float, Float> {
-        velX = 0f
-        velY = 0f
+        offsetX = 0f
+        offsetY = 0f
         lastSampleTimeMs = 0L
-        lastDecayTimeMs = 0L
         lastEmittedZero = true
         return 0f to 0f
     }
 
-    private fun mapVelocityToStick(
-        vx: Float,
-        vy: Float,
+    private fun mapOffsetToStick(
+        ox: Float,
+        oy: Float,
         sensitivity: Float,
         antiDeadzone: Float
     ): Pair<Float, Float> {
-        val speed = hypot(vx, vy)
-        if (speed < STOP_SPEED_DP_PER_SEC) {
+        val mag = hypot(ox, oy)
+        if (mag < ZERO_SNAP_DP) {
             lastEmittedZero = true
             return 0f to 0f
         }
 
-        val clampedSens = sensitivity.coerceIn(MIN_SENSITIVITY, MAX_SENSITIVITY)
         val clampedBoost = antiDeadzone.coerceIn(0f, MAX_ANTI_DEADZONE)
+        val fullDp = fullStickDp(sensitivity)
+        val scaled = (mag / fullDp).coerceIn(0f, 1f)
 
-        val scaled = ((speed * clampedSens) / REFERENCE_MAX_SPEED_DP_PER_SEC).coerceIn(0f, 1f)
-        val curved = ((1f - ACCEL_BLEND_WEIGHT) * scaled + ACCEL_BLEND_WEIGHT * (scaled * scaled))
-            .coerceIn(0f, 1f)
-
-        // Smooth ease-out ramp into the anti-deadzone floor so micro-aim never steps at stop threshold
+        // Smooth ease-in over sub-millimeter noise, then clean linear response above it
         val boostRamp = (scaled / ANTI_DEADZONE_RAMP_THRESHOLD).coerceIn(0f, 1f)
         val effectiveBoost = clampedBoost * boostRamp * (2f - boostRamp)
-        val magnitude = (effectiveBoost + (1f - effectiveBoost) * curved).coerceIn(0f, 1f)
+        val magnitude = (effectiveBoost + (1f - effectiveBoost) * scaled).coerceIn(0f, 1f)
 
-        val outX = ((vx / speed) * magnitude).coerceIn(-1f, 1f)
-        val outY = ((vy / speed) * magnitude).coerceIn(-1f, 1f)
+        val outX = ((ox / mag) * magnitude).coerceIn(-1f, 1f)
+        val outY = ((oy / mag) * magnitude).coerceIn(-1f, 1f)
         lastEmittedZero = false
         return outX to outY
+    }
+
+    private fun fullStickDp(sensitivity: Float): Float {
+        val clampedSens = sensitivity.coerceIn(MIN_SENSITIVITY, MAX_SENSITIVITY)
+        return BASE_FULL_STICK_DP / clampedSens
     }
 
     companion object {
@@ -183,15 +197,10 @@ class TouchMouseLookFilter {
                 .coerceIn(MIN_ANTI_DEADZONE, MAX_ANTI_DEADZONE)
         }
 
-        private const val REFERENCE_MAX_SPEED_DP_PER_SEC = 760f
-        private const val ACCEL_BLEND_WEIGHT = 0.25f
-        private const val ANTI_DEADZONE_RAMP_THRESHOLD = 0.08f
-        private const val JITTER_FLOOR_DP = 0.03f
-        private const val STOP_SPEED_DP_PER_SEC = 2.0f
-
-        private const val TAU_ATTACK_MS = 6f
-        private const val TAU_GLIDE_MS = 14f
-        private const val TAU_DECAY_MS = 10f
-        private const val PAUSE_RESET_MS = 120L
+        private const val BASE_FULL_STICK_DP = 21.3f
+        private const val LEASH_HEADROOM = 1.45f
+        private const val TAU_MS = 28f
+        private const val ANTI_DEADZONE_RAMP_THRESHOLD = 0.05f
+        private const val ZERO_SNAP_DP = 0.015f
     }
 }

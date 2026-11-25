@@ -61,6 +61,14 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
     private var prevRT = 0f
     private var prevHatX = 0f
     private var prevHatY = 0f
+    private var prevUinputLX = 0
+    private var prevUinputLY = 0
+    private var prevUinputLT = 0
+    private var prevUinputRX = 0
+    private var prevUinputRY = 0
+    private var prevUinputRT = 0
+    private var prevUinputHatX = 0
+    private var prevUinputHatY = 0
     private var motionDownTime = 0L
 
     init {
@@ -457,42 +465,59 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
             }
         }
 
-        val axisChanged = hasAxesChanged(leftTrigger, rightTrigger, thumbLX, thumbLY, thumbRX, thumbRY, hatX, hatY)
-        if (axisChanged) {
-            val lx = VirtualXboxHidProtocol.scaleStickInt16(thumbLX)
-            val ly = VirtualXboxHidProtocol.scaleStickInt16(thumbLY)
-            val rx = VirtualXboxHidProtocol.scaleStickInt16(thumbRX)
-            val ry = VirtualXboxHidProtocol.scaleStickInt16(thumbRY)
-            val lt = (leftTrigger.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
-            val rt = (rightTrigger.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
-            val hx = when {
-                hatX > 0.5f -> 1
-                hatX < -0.5f -> -1
-                else -> 0
-            }
-            val hy = when {
-                hatY > 0.5f -> 1
-                hatY < -0.5f -> -1
-                else -> 0
-            }
+        val lx = VirtualXboxHidProtocol.scaleStickInt16(thumbLX)
+        val ly = VirtualXboxHidProtocol.scaleStickInt16(thumbLY)
+        val rx = VirtualXboxHidProtocol.scaleStickInt16(thumbRX)
+        val ry = VirtualXboxHidProtocol.scaleStickInt16(thumbRY)
+        val lt = (leftTrigger.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
+        val rt = (rightTrigger.coerceIn(0f, 1f) * 255f).roundToInt().coerceIn(0, 255)
+        val hx = when {
+            hatX > 0.5f -> 1
+            hatX < -0.5f -> -1
+            else -> 0
+        }
+        val hy = when {
+            hatY > 0.5f -> 1
+            hatY < -0.5f -> -1
+            else -> 0
+        }
 
-            events.addAll(
-                listOf(
-                    VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_X, lx,
-                    VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_Y, ly,
-                    VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_Z, lt,
-                    VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_RX, rx,
-                    VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_RY, ry,
-                    VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_RZ, rt,
-                    VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_HAT0X, hx,
-                    VirtualXboxHidProtocol.EV_ABS, VirtualXboxHidProtocol.ABS_HAT0Y, hy
-                )
-            )
+        if (lx != prevUinputLX) {
+            events.add(VirtualXboxHidProtocol.EV_ABS); events.add(VirtualXboxHidProtocol.ABS_X); events.add(lx)
+        }
+        if (ly != prevUinputLY) {
+            events.add(VirtualXboxHidProtocol.EV_ABS); events.add(VirtualXboxHidProtocol.ABS_Y); events.add(ly)
+        }
+        if (lt != prevUinputLT) {
+            events.add(VirtualXboxHidProtocol.EV_ABS); events.add(VirtualXboxHidProtocol.ABS_Z); events.add(lt)
+        }
+        if (rx != prevUinputRX) {
+            events.add(VirtualXboxHidProtocol.EV_ABS); events.add(VirtualXboxHidProtocol.ABS_RX); events.add(rx)
+        }
+        if (ry != prevUinputRY) {
+            events.add(VirtualXboxHidProtocol.EV_ABS); events.add(VirtualXboxHidProtocol.ABS_RY); events.add(ry)
+        }
+        if (rt != prevUinputRT) {
+            events.add(VirtualXboxHidProtocol.EV_ABS); events.add(VirtualXboxHidProtocol.ABS_RZ); events.add(rt)
+        }
+        if (hx != prevUinputHatX) {
+            events.add(VirtualXboxHidProtocol.EV_ABS); events.add(VirtualXboxHidProtocol.ABS_HAT0X); events.add(hx)
+        }
+        if (hy != prevUinputHatY) {
+            events.add(VirtualXboxHidProtocol.EV_ABS); events.add(VirtualXboxHidProtocol.ABS_HAT0Y); events.add(hy)
         }
 
         if (events.isEmpty()) return
 
         updatePrevState(buttonsMask, leftTrigger, rightTrigger, thumbLX, thumbLY, thumbRX, thumbRY, hatX, hatY)
+        prevUinputLX = lx
+        prevUinputLY = ly
+        prevUinputLT = lt
+        prevUinputRX = rx
+        prevUinputRY = ry
+        prevUinputRT = rt
+        prevUinputHatX = hx
+        prevUinputHatY = hy
         events.add(VirtualXboxHidProtocol.EV_SYN)
         events.add(VirtualXboxHidProtocol.SYN_REPORT)
         events.add(0)
@@ -769,6 +794,14 @@ class ShizukuXInputService() : IXInputInjector.Stub() {
         prevRT = 0f
         prevHatX = 0f
         prevHatY = 0f
+        prevUinputLX = 0
+        prevUinputLY = 0
+        prevUinputLT = 0
+        prevUinputRX = 0
+        prevUinputRY = 0
+        prevUinputRT = 0
+        prevUinputHatX = 0
+        prevUinputHatY = 0
         motionDownTime = 0L
     }
 

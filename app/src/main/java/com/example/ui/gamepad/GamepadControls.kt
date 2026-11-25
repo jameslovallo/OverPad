@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -71,6 +72,8 @@ import com.example.xinput.TouchMouseLookFilter
 import com.example.xinput.XInputControllerEngine
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.cos
@@ -111,13 +114,11 @@ fun GamepadControlNode(
     val isToggleable = placement.toggleable && type.supportsToggle
     val view = LocalView.current
 
-    val engineState = if (engine != null && interactive && isToggleable) {
-        engine.state.collectAsState().value
-    } else {
-        null
-    }
-    val engineActive: Boolean? = if (engineState != null && type.keyCode != null) {
-        engineState.isPressed(type.keyCode)
+    val keyCode = type.keyCode
+    val engineActive: Boolean? = if (engine != null && interactive && isToggleable && keyCode != null) {
+        remember(engine, keyCode) {
+            engine.state.map { it.isPressed(keyCode) }.distinctUntilChanged()
+        }.collectAsState(initial = engine.state.value.isPressed(keyCode)).value
     } else {
         null
     }
@@ -274,9 +275,7 @@ private fun ThumbstickWidget(
             awaitPointerEventScope {
                 var activePointerId: PointerId? = null
                 var prevPos = Offset.Zero
-                var lastEventUptimeMs = 0L
-                var lastMoveWallMs = 0L
-                var decayJob: Job? = null
+                var vsyncJob: Job? = null
 
                 while (true) {
                     val event = awaitPointerEvent(PointerEventPass.Main)
@@ -288,29 +287,32 @@ private fun ThumbstickWidget(
                             onTouchDown()
                             if (mouseLookMode) {
                                 prevPos = down.position
-                                lastEventUptimeMs = down.uptimeMillis
-                                lastMoveWallMs = SystemClock.uptimeMillis()
                                 mouseFilter.onPointerDown(down.uptimeMillis)
                                 normX = 0f
                                 normY = 0f
                                 currentOnDeflect(0f, 0f)
-                                decayJob?.cancel()
-                                decayJob = scope.launch {
+                                vsyncJob?.cancel()
+                                vsyncJob = scope.launch {
+                                    var lastFrameNanos = 0L
                                     while (isActive && activePointerId != null) {
-                                        delay(10L)
-                                        val idleElapsedMs = SystemClock.uptimeMillis() - lastMoveWallMs
-                                        if (idleElapsedMs >= TouchMouseLookFilter.IDLE_HOLD_THRESHOLD_MS) {
-                                            val decayed = mouseFilter.decayIfIdle(
-                                                nowUptimeMs = lastEventUptimeMs + idleElapsedMs,
+                                        withFrameNanos { frameNanos ->
+                                            val dtMs = if (lastFrameNanos == 0L) {
+                                                16.67f
+                                            } else {
+                                                ((frameNanos - lastFrameNanos) / 1_000_000f).coerceIn(1f, 50f)
+                                            }
+                                            lastFrameNanos = frameNanos
+                                            val output = mouseFilter.stepFrame(
+                                                dtMs = dtMs,
                                                 sensitivity = currentSensitivity,
                                                 antiDeadzone = currentAntiDeadzone
                                             )
-                                            if (decayed != null) {
-                                                normX = decayed.first
-                                                normY = decayed.second
+                                            if (output != null) {
+                                                normX = output.first
+                                                normY = output.second
                                                 currentOnDeflect(
-                                                    decayed.first,
-                                                    if (currentInvertY) -decayed.second else decayed.second
+                                                    output.first,
+                                                    if (currentInvertY) -output.second else output.second
                                                 )
                                             }
                                         }
@@ -332,8 +334,8 @@ private fun ThumbstickWidget(
                         val change = event.changes.firstOrNull { it.id == activePointerId }
                         if (change == null || !change.pressed) {
                             activePointerId = null
-                            decayJob?.cancel()
-                            decayJob = null
+                            vsyncJob?.cancel()
+                            vsyncJob = null
                             mouseFilter.reset()
                             active = false
                             normX = 0f
@@ -344,18 +346,11 @@ private fun ThumbstickWidget(
                             if (mouseLookMode) {
                                 val deltaPx = change.position - prevPos
                                 prevPos = change.position
-                                lastEventUptimeMs = change.uptimeMillis
-                                lastMoveWallMs = SystemClock.uptimeMillis()
-                                val (rx, ryRaw) = mouseFilter.onPointerMove(
+                                mouseFilter.accumulateDelta(
                                     dxDp = deltaPx.x / density.density,
                                     dyDp = deltaPx.y / density.density,
-                                    uptimeMs = change.uptimeMillis,
-                                    sensitivity = currentSensitivity,
-                                    antiDeadzone = currentAntiDeadzone
+                                    sensitivity = currentSensitivity
                                 )
-                                normX = rx
-                                normY = ryRaw
-                                currentOnDeflect(rx, if (currentInvertY) -ryRaw else ryRaw)
                             } else {
                                 val center = Offset(size.width / 2f, size.height / 2f)
                                 val maxRadius = (minOf(size.width, size.height) * 0.36f).coerceAtLeast(1f)
@@ -796,12 +791,9 @@ private fun TriggerDragAimWidget(
             awaitPointerEventScope {
                 var activePointerId: PointerId? = null
                 var downPos = Offset.Zero
-                var downUptimeMs = 0L
                 var prevPos = Offset.Zero
-                var lastEventUptimeMs = 0L
-                var lastMoveWallMs = 0L
                 var hasStartedDrag = false
-                var decayJob: Job? = null
+                var vsyncJob: Job? = null
                 var sessionLatchedState = false
 
                 while (true) {
@@ -812,10 +804,7 @@ private fun TriggerDragAimWidget(
                             activePointerId = down.id
                             isHoldingPointer = true
                             downPos = down.position
-                            downUptimeMs = down.uptimeMillis
                             prevPos = down.position
-                            lastEventUptimeMs = down.uptimeMillis
-                            lastMoveWallMs = SystemClock.uptimeMillis()
                             hasStartedDrag = false
                             sessionLatchedState = if (currentToggleable) !pressed else true
                             pressed = sessionLatchedState
@@ -831,8 +820,8 @@ private fun TriggerDragAimWidget(
                             activePointerId = null
                             isHoldingPointer = false
                             hasStartedDrag = false
-                            decayJob?.cancel()
-                            decayJob = null
+                            vsyncJob?.cancel()
+                            vsyncJob = null
                             swipeFilter.reset()
                             val keepActive = if (currentToggleable) sessionLatchedState else false
                             pressed = keepActive
@@ -848,38 +837,36 @@ private fun TriggerDragAimWidget(
                                     if (fromDownDp > TRIGGER_DRAG_SQUISH_GUARD_DP) {
                                         hasStartedDrag = true
                                         prevPos = change.position
-                                        lastEventUptimeMs = change.uptimeMillis
-                                        lastMoveWallMs = SystemClock.uptimeMillis()
-                                        swipeFilter.onPointerDown((change.uptimeMillis - 16L).coerceAtLeast(downUptimeMs))
-                                        val (rx, ryRaw) = swipeFilter.onPointerMove(
+                                        swipeFilter.onPointerDown(change.uptimeMillis)
+                                        swipeFilter.accumulateDelta(
                                             dxDp = fromDown.x / density.density,
                                             dyDp = fromDown.y / density.density,
-                                            uptimeMs = change.uptimeMillis,
-                                            sensitivity = currentSensitivity,
-                                            antiDeadzone = currentAntiDeadzone
+                                            sensitivity = currentSensitivity
                                         )
-                                        dragVecX = rx
-                                        dragVecY = ryRaw
-                                        currentOnUpdate(true, rx, if (currentInvertY) -ryRaw else ryRaw)
 
-                                        decayJob?.cancel()
-                                        decayJob = scope.launch {
+                                        vsyncJob?.cancel()
+                                        vsyncJob = scope.launch {
+                                            var lastFrameNanos = 0L
                                             while (isActive && activePointerId != null) {
-                                                delay(10L)
-                                                val idleElapsedMs = SystemClock.uptimeMillis() - lastMoveWallMs
-                                                if (idleElapsedMs >= TouchMouseLookFilter.IDLE_HOLD_THRESHOLD_MS) {
-                                                    val decayed = swipeFilter.decayIfIdle(
-                                                        nowUptimeMs = lastEventUptimeMs + idleElapsedMs,
+                                                withFrameNanos { frameNanos ->
+                                                    val dtMs = if (lastFrameNanos == 0L) {
+                                                        16.67f
+                                                    } else {
+                                                        ((frameNanos - lastFrameNanos) / 1_000_000f).coerceIn(1f, 50f)
+                                                    }
+                                                    lastFrameNanos = frameNanos
+                                                    val output = swipeFilter.stepFrame(
+                                                        dtMs = dtMs,
                                                         sensitivity = currentSensitivity,
                                                         antiDeadzone = currentAntiDeadzone
                                                     )
-                                                    if (decayed != null) {
-                                                        dragVecX = decayed.first
-                                                        dragVecY = decayed.second
+                                                    if (output != null) {
+                                                        dragVecX = output.first
+                                                        dragVecY = output.second
                                                         currentOnUpdate(
                                                             true,
-                                                            decayed.first,
-                                                            if (currentInvertY) -decayed.second else decayed.second
+                                                            output.first,
+                                                            if (currentInvertY) -output.second else output.second
                                                         )
                                                     }
                                                 }
@@ -889,18 +876,11 @@ private fun TriggerDragAimWidget(
                                 } else {
                                     val step = change.position - prevPos
                                     prevPos = change.position
-                                    lastEventUptimeMs = change.uptimeMillis
-                                    lastMoveWallMs = SystemClock.uptimeMillis()
-                                    val (rx, ryRaw) = swipeFilter.onPointerMove(
+                                    swipeFilter.accumulateDelta(
                                         dxDp = step.x / density.density,
                                         dyDp = step.y / density.density,
-                                        uptimeMs = change.uptimeMillis,
-                                        sensitivity = currentSensitivity,
-                                        antiDeadzone = currentAntiDeadzone
+                                        sensitivity = currentSensitivity
                                     )
-                                    dragVecX = rx
-                                    dragVecY = ryRaw
-                                    currentOnUpdate(true, rx, if (currentInvertY) -ryRaw else ryRaw)
                                 }
                             }
                             change.consume()
@@ -1439,9 +1419,7 @@ fun FpsRightLookZoneSurface(
                 awaitPointerEventScope {
                     var activePointerId: PointerId? = null
                     var prevPos = Offset.Zero
-                    var lastEventUptimeMs = 0L
-                    var lastMoveWallMs = 0L
-                    var decayJob: Job? = null
+                    var vsyncJob: Job? = null
 
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Main)
@@ -1450,27 +1428,28 @@ fun FpsRightLookZoneSurface(
                             if (down != null) {
                                 activePointerId = down.id
                                 prevPos = down.position
-                                lastEventUptimeMs = down.uptimeMillis
-                                lastMoveWallMs = SystemClock.uptimeMillis()
                                 activeLook = true
                                 mouseLookFilter.onPointerDown(down.uptimeMillis)
                                 currentEngine?.updateFpsLookZoneStick(0f, 0f)
-                                decayJob?.cancel()
-                                decayJob = scope.launch {
+                                vsyncJob?.cancel()
+                                vsyncJob = scope.launch {
+                                    var lastFrameNanos = 0L
                                     while (isActive && activePointerId != null) {
-                                        delay(10L)
-                                        val idleElapsedMs = SystemClock.uptimeMillis() - lastMoveWallMs
-                                        if (idleElapsedMs >= TouchMouseLookFilter.IDLE_HOLD_THRESHOLD_MS) {
-                                            val decayed = mouseLookFilter.decayIfIdle(
-                                                nowUptimeMs = lastEventUptimeMs + idleElapsedMs,
+                                        withFrameNanos { frameNanos ->
+                                            val dtMs = if (lastFrameNanos == 0L) {
+                                                16.67f
+                                            } else {
+                                                ((frameNanos - lastFrameNanos) / 1_000_000f).coerceIn(1f, 50f)
+                                            }
+                                            lastFrameNanos = frameNanos
+                                            val output = mouseLookFilter.stepFrame(
+                                                dtMs = dtMs,
                                                 sensitivity = currentSensitivity,
                                                 antiDeadzone = currentAntiDeadzone
                                             )
-                                            if (decayed != null) {
-                                                currentEngine?.updateFpsLookZoneStick(
-                                                    decayed.first,
-                                                    if (currentInvertY) -decayed.second else decayed.second
-                                                )
+                                            if (output != null) {
+                                                val ry = if (currentInvertY) -output.second else output.second
+                                                currentEngine?.updateFpsLookZoneStick(output.first, ry)
                                             }
                                         }
                                     }
@@ -1481,8 +1460,8 @@ fun FpsRightLookZoneSurface(
                             val change = event.changes.firstOrNull { it.id == activePointerId }
                             if (change == null || !change.pressed) {
                                 activePointerId = null
-                                decayJob?.cancel()
-                                decayJob = null
+                                vsyncJob?.cancel()
+                                vsyncJob = null
                                 mouseLookFilter.reset()
                                 activeLook = false
                                 currentEngine?.updateFpsLookZoneStick(0f, 0f)
@@ -1490,17 +1469,11 @@ fun FpsRightLookZoneSurface(
                             } else {
                                 val deltaPx = change.position - prevPos
                                 prevPos = change.position
-                                lastEventUptimeMs = change.uptimeMillis
-                                lastMoveWallMs = SystemClock.uptimeMillis()
-                                val (rx, ryRaw) = mouseLookFilter.onPointerMove(
+                                mouseLookFilter.accumulateDelta(
                                     dxDp = deltaPx.x / density.density,
                                     dyDp = deltaPx.y / density.density,
-                                    uptimeMs = change.uptimeMillis,
-                                    sensitivity = currentSensitivity,
-                                    antiDeadzone = currentAntiDeadzone
+                                    sensitivity = currentSensitivity
                                 )
-                                val ry = if (currentInvertY) -ryRaw else ryRaw
-                                currentEngine?.updateFpsLookZoneStick(rx, ry)
                                 change.consume()
                             }
                         }
