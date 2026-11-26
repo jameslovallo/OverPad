@@ -93,6 +93,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.example.OverlayRuntimeState
 import com.example.model.ControllerPreset
+import com.example.shizuku.PhysicalControllerState
 import com.example.shizuku.ShizukuStatus
 import kotlin.math.roundToInt
 
@@ -101,6 +102,7 @@ fun ControlsScreen(
     overlayState: OverlayRuntimeState,
     presets: List<ControllerPreset>,
     shizukuStatus: ShizukuStatus,
+    physicalControllerState: PhysicalControllerState = PhysicalControllerState(),
     hasOverlayPermission: Boolean,
     isAppInMultiWindow: Boolean = false,
     onStartOverlay: () -> Unit,
@@ -268,6 +270,7 @@ fun ControlsScreen(
     }
 
     val canActivateOverlay = hasOverlayPermission || isAppInMultiWindow
+    val isBlockedByPhysicalController = !overlayState.isRunning && physicalControllerState.isConnected
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val minHeight = maxHeight
@@ -280,7 +283,9 @@ fun ControlsScreen(
         }
 
         val handleToggleOverlay = {
-            if (!canActivateOverlay) {
+            if (isBlockedByPhysicalController) {
+                // Physical controller connected: main screen trigger cannot activate overlay
+            } else if (!canActivateOverlay) {
                 val intent = Intent(
                     Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                     Uri.parse("package:${context.packageName}")
@@ -294,12 +299,14 @@ fun ControlsScreen(
         }
 
         val statusColor = when {
+            isBlockedByPhysicalController -> MaterialTheme.colorScheme.tertiary
             !canActivateOverlay -> MaterialTheme.colorScheme.tertiary
             overlayState.isRunning && shizukuStatus.isHardwareSpoofed -> MaterialTheme.colorScheme.secondary
             overlayState.isRunning -> MaterialTheme.colorScheme.primary
             else -> MaterialTheme.colorScheme.onSurfaceVariant
         }
         val statusLabel = when {
+            isBlockedByPhysicalController -> "Controller Connected"
             !canActivateOverlay -> "Grant Overlay"
             overlayState.isRunning && shizukuStatus.isHardwareSpoofed -> "Connected"
             overlayState.isRunning -> "Active"
@@ -318,12 +325,13 @@ fun ControlsScreen(
                     isOverlayRunning = overlayState.isRunning,
                     isHardwareSpoofed = shizukuStatus.isHardwareSpoofed,
                     hasOverlayPermission = canActivateOverlay,
+                    isActivationBlocked = isBlockedByPhysicalController,
                     maxHeroWidth = heroMaxWidth,
                     onToggleOverlay = handleToggleOverlay
                 )
 
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                    verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Surface(
@@ -336,6 +344,20 @@ fun ControlsScreen(
                             style = MaterialTheme.typography.labelLarge,
                             color = statusColor,
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                        )
+                    }
+
+                    if (isBlockedByPhysicalController) {
+                        val controllerName = physicalControllerState.primaryName ?: "Physical controller"
+                        Text(
+                            text = "$controllerName • Overlay disabled",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .widthIn(max = 260.dp)
+                                .testTag("physical_controller_blocked_note")
                         )
                     }
 
@@ -414,21 +436,41 @@ fun ControlsScreen(
                     isOverlayRunning = overlayState.isRunning,
                     isHardwareSpoofed = shizukuStatus.isHardwareSpoofed,
                     hasOverlayPermission = canActivateOverlay,
+                    isActivationBlocked = isBlockedByPhysicalController,
                     maxHeroWidth = heroMaxWidth,
                     onToggleOverlay = handleToggleOverlay
                 )
 
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = statusColor.copy(alpha = if (overlayState.isRunning) 0.18f else 0.10f),
-                    border = BorderStroke(1.dp, statusColor.copy(alpha = if (overlayState.isRunning) 0.55f else 0.25f))
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = statusLabel,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = statusColor,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = statusColor.copy(alpha = if (overlayState.isRunning) 0.18f else 0.10f),
+                        border = BorderStroke(1.dp, statusColor.copy(alpha = if (overlayState.isRunning) 0.55f else 0.25f))
+                    ) {
+                        Text(
+                            text = statusLabel,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = statusColor,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                        )
+                    }
+
+                    if (isBlockedByPhysicalController) {
+                        val controllerName = physicalControllerState.primaryName ?: "Physical controller"
+                        Text(
+                            text = "$controllerName • Overlay disabled",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .widthIn(max = 300.dp)
+                                .testTag("physical_controller_blocked_note")
+                        )
+                    }
                 }
 
                 // Centered Expressive Connected Button Group: [ Preset Picker ▾ ] [ ✎ ]
@@ -501,6 +543,7 @@ private fun XboxControllerOutlineHero(
     isOverlayRunning: Boolean,
     isHardwareSpoofed: Boolean,
     hasOverlayPermission: Boolean,
+    isActivationBlocked: Boolean = false,
     maxHeroWidth: androidx.compose.ui.unit.Dp = 360.dp,
     onToggleOverlay: () -> Unit
 ) {
@@ -515,7 +558,11 @@ private fun XboxControllerOutlineHero(
         label = "controller_body_fill"
     )
     val bodyStrokeColor by animateColorAsState(
-        targetValue = if (isOverlayRunning) activeAccent else colorScheme.outlineVariant,
+        targetValue = when {
+            isOverlayRunning -> activeAccent
+            isActivationBlocked -> colorScheme.outlineVariant.copy(alpha = 0.65f)
+            else -> colorScheme.outlineVariant
+        },
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "controller_body_stroke"
     )
@@ -544,6 +591,7 @@ private fun XboxControllerOutlineHero(
     )
     val buttonContainerColor by animateColorAsState(
         targetValue = when {
+            isActivationBlocked -> colorScheme.surfaceContainerLow
             !hasOverlayPermission -> colorScheme.tertiaryContainer
             isOverlayRunning -> activeAccent
             else -> colorScheme.surfaceContainerLow
@@ -553,6 +601,7 @@ private fun XboxControllerOutlineHero(
     )
     val buttonContentColor by animateColorAsState(
         targetValue = when {
+            isActivationBlocked -> colorScheme.onSurface.copy(alpha = 0.38f)
             !hasOverlayPermission -> colorScheme.onTertiaryContainer
             isOverlayRunning -> activeOnAccent
             else -> colorScheme.onSurfaceVariant
@@ -562,6 +611,7 @@ private fun XboxControllerOutlineHero(
     )
     val buttonBorderColor by animateColorAsState(
         targetValue = when {
+            isActivationBlocked -> colorScheme.outlineVariant.copy(alpha = 0.50f)
             !hasOverlayPermission -> colorScheme.tertiary
             isOverlayRunning -> activeOnAccent.copy(alpha = 0.35f)
             else -> colorScheme.outline
@@ -570,7 +620,11 @@ private fun XboxControllerOutlineHero(
         label = "center_btn_border"
     )
     val buttonElevation by animateDpAsState(
-        targetValue = if (isOverlayRunning) 10.dp else 1.dp,
+        targetValue = when {
+            isActivationBlocked -> 0.dp
+            isOverlayRunning -> 10.dp
+            else -> 1.dp
+        },
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "center_btn_elevation"
     )
@@ -709,6 +763,7 @@ private fun XboxControllerOutlineHero(
 
         // Large Center Material 3 Circular Toggle Button
         val toggleDescription = when {
+            isActivationBlocked -> "Physical controller connected; overlay activation disabled"
             !hasOverlayPermission -> "Grant overlay permission"
             isOverlayRunning -> "Deactivate OverPad overlay"
             else -> "Activate OverPad overlay"
@@ -716,6 +771,7 @@ private fun XboxControllerOutlineHero(
 
         Surface(
             onClick = onToggleOverlay,
+            enabled = !isActivationBlocked,
             shape = CircleShape,
             color = buttonContainerColor,
             contentColor = buttonContentColor,
@@ -741,7 +797,7 @@ private fun XboxControllerOutlineHero(
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                 AnimatedContent(
-                    targetState = Triple(hasOverlayPermission, isOverlayRunning, isHardwareSpoofed),
+                    targetState = Triple(hasOverlayPermission, isOverlayRunning, isActivationBlocked),
                     transitionSpec = {
                         (fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
                             scaleIn(initialScale = 0.80f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)))
@@ -751,8 +807,9 @@ private fun XboxControllerOutlineHero(
                             )
                     },
                     label = "center_toggle_icon"
-                ) { (hasPerm, running, _) ->
+                ) { (hasPerm, running, blocked) ->
                     val icon = when {
+                        blocked -> Icons.Rounded.PowerSettingsNew
                         !hasPerm -> Icons.Outlined.Layers
                         running -> Icons.Filled.SportsEsports
                         else -> Icons.Rounded.PowerSettingsNew

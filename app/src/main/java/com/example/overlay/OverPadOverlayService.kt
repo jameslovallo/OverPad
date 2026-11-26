@@ -82,6 +82,12 @@ class OverPadOverlayService : Service() {
             return
         }
 
+        if (!app.overlayState.value.isRunning && app.refreshPhysicalControllerState().isConnected) {
+            app.syncQuickActionNotification()
+            stopSelf()
+            return
+        }
+
         app.updateOverlayState { it.copy(isRunning = true, isOverlaySettingsOpen = false, isOverlayEditMode = false) }
         app.shizukuBridge.setOverlayActive(true)
         OverlayNotificationHelper.requestTileUpdate(this)
@@ -136,6 +142,11 @@ class OverPadOverlayService : Service() {
             }
             ACTION_START -> {
                 if (!Settings.canDrawOverlays(this) && !app.isAppInMultiWindow.value) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                if (!app.overlayState.value.isRunning && app.refreshPhysicalControllerState().isConnected) {
+                    app.syncQuickActionNotification()
                     stopSelf()
                     return START_NOT_STICKY
                 }

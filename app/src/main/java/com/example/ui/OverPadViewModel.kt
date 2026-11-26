@@ -15,6 +15,7 @@ import com.example.model.ControllerPreset
 import com.example.model.DefaultPresets
 import com.example.model.InstalledAppInfo
 import com.example.overlay.OverPadOverlayService
+import com.example.shizuku.PhysicalControllerState
 import com.example.shizuku.ShizukuStatus
 import com.example.xinput.DriverCapabilityStatus
 import com.example.xinput.XInputState
@@ -58,6 +59,7 @@ class OverPadViewModel(application: Application) : AndroidViewModel(application)
     val isAppInMultiWindow: StateFlow<Boolean> = app.isAppInMultiWindow
     val xInputState: StateFlow<XInputState> = app.xInputEngine.state
     val shizukuStatus: StateFlow<ShizukuStatus> = shizukuBridge.status
+    val physicalControllerState: StateFlow<PhysicalControllerState> = app.physicalControllerMonitor.state
     val driverCapability: DriverCapabilityStatus = app.xInputEngine.driverCapability
 
     private val _installedApps = MutableStateFlow<List<InstalledAppInfo>>(emptyList())
@@ -90,6 +92,7 @@ class OverPadViewModel(application: Application) : AndroidViewModel(application)
         _hasOverlayPermission.value = Settings.canDrawOverlays(context)
         _hasUsagePermission.value = monitor.hasUsageAccessPermission()
         shizukuBridge.refreshStatusAndAutoConnect()
+        app.refreshPhysicalControllerState()
         app.syncQuickActionNotification()
     }
 
@@ -233,6 +236,10 @@ class OverPadViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun startOverlay(context: Context) {
+        if (!app.overlayState.value.isRunning && app.refreshPhysicalControllerState().isConnected) {
+            app.syncQuickActionNotification()
+            return
+        }
         if (Settings.canDrawOverlays(context) || app.isAppInMultiWindow.value) {
             shizukuBridge.refreshStatusAndAutoConnect()
             OverPadOverlayService.start(context)

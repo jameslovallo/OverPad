@@ -134,11 +134,12 @@ object OverlayNotificationHelper {
         context: Context,
         isOverlayRunning: Boolean,
         presetName: String,
-        quickActionEnabled: Boolean
+        quickActionEnabled: Boolean,
+        isPhysicalControllerConnected: Boolean = false
     ) {
         if (isOverlayRunning) return
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
-        if (quickActionEnabled && Settings.canDrawOverlays(context) && hasNotificationPermission(context)) {
+        if (quickActionEnabled && !isPhysicalControllerConnected && Settings.canDrawOverlays(context) && hasNotificationPermission(context)) {
             runCatching {
                 nm.notify(NOTIFICATION_ID, buildStandbyNotification(context, presetName))
             }

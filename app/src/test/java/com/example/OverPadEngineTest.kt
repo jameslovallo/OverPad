@@ -714,4 +714,148 @@ class OverPadEngineTest {
             }
         }
     }
+
+    @Test
+    fun physicalControllerDetector_detectsRealControllersAndExcludesVirtualAndOwnDevices() {
+        val gamepadSource = android.view.InputDevice.SOURCE_GAMEPAD
+        val joystickSource = android.view.InputDevice.SOURCE_JOYSTICK
+        val keyboardOnlySource = android.view.InputDevice.SOURCE_KEYBOARD
+
+        // 1. Real USB/Bluetooth gamepad is detected
+        assertTrue(
+            com.example.shizuku.PhysicalControllerDetector.isPhysicalControllerCandidate(
+                deviceId = 12,
+                name = "DualSense Wireless Controller",
+                vendorId = 0x054C,
+                productId = 0x0CE6,
+                sources = gamepadSource or joystickSource,
+                isVirtual = false,
+                isEnabled = true,
+                hasJoystickAxis = true,
+                ownVirtualDeviceId = -1,
+                isOwnVirtualOverlayStarting = false
+            )
+        )
+
+        // 2. Real analog-only joystick with motion axes is detected
+        assertTrue(
+            com.example.shizuku.PhysicalControllerDetector.isPhysicalControllerCandidate(
+                deviceId = 15,
+                name = "Flight Stick",
+                vendorId = 0x046D,
+                productId = 0xC215,
+                sources = joystickSource,
+                isVirtual = false,
+                isEnabled = true,
+                hasJoystickAxis = true,
+                ownVirtualDeviceId = -1,
+                isOwnVirtualOverlayStarting = false
+            )
+        )
+
+        // 3. Joystick source without analog axes (e.g. sensor/remote) or keyboard-only is ignored
+        assertFalse(
+            com.example.shizuku.PhysicalControllerDetector.isPhysicalControllerCandidate(
+                deviceId = 16,
+                name = "Accelerometer",
+                vendorId = 0,
+                productId = 0,
+                sources = joystickSource,
+                isVirtual = false,
+                isEnabled = true,
+                hasJoystickAxis = false,
+                ownVirtualDeviceId = -1,
+                isOwnVirtualOverlayStarting = false
+            )
+        )
+        assertFalse(
+            com.example.shizuku.PhysicalControllerDetector.isPhysicalControllerCandidate(
+                deviceId = 17,
+                name = "USB Keyboard",
+                vendorId = 0x1234,
+                productId = 0x5678,
+                sources = keyboardOnlySource,
+                isVirtual = false,
+                isEnabled = true,
+                hasJoystickAxis = false,
+                ownVirtualDeviceId = -1,
+                isOwnVirtualOverlayStarting = false
+            )
+        )
+
+        // 4. Virtual, disabled, invalid deviceId, or OverPad's own virtualDeviceId are excluded
+        assertFalse(
+            com.example.shizuku.PhysicalControllerDetector.isPhysicalControllerCandidate(
+                deviceId = 18,
+                name = "Virtual Pad",
+                vendorId = 0x045E,
+                productId = 0x0B20,
+                sources = gamepadSource,
+                isVirtual = true,
+                isEnabled = true,
+                hasJoystickAxis = true,
+                ownVirtualDeviceId = -1,
+                isOwnVirtualOverlayStarting = false
+            )
+        )
+        assertFalse(
+            com.example.shizuku.PhysicalControllerDetector.isPhysicalControllerCandidate(
+                deviceId = 19,
+                name = "Disabled Pad",
+                vendorId = 0x045E,
+                productId = 0x0B20,
+                sources = gamepadSource,
+                isVirtual = false,
+                isEnabled = false,
+                hasJoystickAxis = true,
+                ownVirtualDeviceId = -1,
+                isOwnVirtualOverlayStarting = false
+            )
+        )
+        assertFalse(
+            com.example.shizuku.PhysicalControllerDetector.isPhysicalControllerCandidate(
+                deviceId = 22,
+                name = com.example.shizuku.VirtualXboxHidProtocol.UHID_NAME,
+                vendorId = com.example.shizuku.VirtualXboxHidProtocol.MICROSOFT_VID,
+                productId = com.example.shizuku.VirtualXboxHidProtocol.XBOX_UHID_PID,
+                sources = gamepadSource,
+                isVirtual = false,
+                isEnabled = true,
+                hasJoystickAxis = true,
+                ownVirtualDeviceId = 22,
+                isOwnVirtualOverlayStarting = true
+            )
+        )
+
+        // 5. During startup race window before virtualDeviceId arrives, OverPad's own UHID/UINPUT signature is ignored
+        assertFalse(
+            com.example.shizuku.PhysicalControllerDetector.isPhysicalControllerCandidate(
+                deviceId = 23,
+                name = com.example.shizuku.VirtualXboxHidProtocol.UHID_NAME,
+                vendorId = com.example.shizuku.VirtualXboxHidProtocol.MICROSOFT_VID,
+                productId = com.example.shizuku.VirtualXboxHidProtocol.XBOX_UHID_PID,
+                sources = gamepadSource,
+                isVirtual = false,
+                isEnabled = true,
+                hasJoystickAxis = true,
+                ownVirtualDeviceId = -1,
+                isOwnVirtualOverlayStarting = true
+            )
+        )
+        // ...whereas a real Xbox controller when overlay is NOT starting IS detected
+        assertTrue(
+            com.example.shizuku.PhysicalControllerDetector.isPhysicalControllerCandidate(
+                deviceId = 24,
+                name = com.example.shizuku.VirtualXboxHidProtocol.UHID_NAME,
+                vendorId = com.example.shizuku.VirtualXboxHidProtocol.MICROSOFT_VID,
+                productId = com.example.shizuku.VirtualXboxHidProtocol.XBOX_UHID_PID,
+                sources = gamepadSource,
+                isVirtual = false,
+                isEnabled = true,
+                hasJoystickAxis = true,
+                ownVirtualDeviceId = -1,
+                isOwnVirtualOverlayStarting = false
+            )
+        )
+    }
 }

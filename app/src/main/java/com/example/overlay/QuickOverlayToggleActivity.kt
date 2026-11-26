@@ -15,8 +15,15 @@ class QuickOverlayToggleActivity : Activity() {
         super.onCreate(savedInstanceState)
         if (Settings.canDrawOverlays(this)) {
             val app = application as? OverPadApplication
-            app?.shizukuBridge?.refreshStatusAndAutoConnect()
-            OverPadOverlayService.start(this)
+            val blockedByPhysicalController =
+                app?.overlayState?.value?.isRunning != true &&
+                    app?.refreshPhysicalControllerState()?.isConnected == true
+            if (blockedByPhysicalController) {
+                app?.syncQuickActionNotification()
+            } else {
+                app?.shizukuBridge?.refreshStatusAndAutoConnect()
+                OverPadOverlayService.start(this)
+            }
         }
         finish()
         disableTransitions()

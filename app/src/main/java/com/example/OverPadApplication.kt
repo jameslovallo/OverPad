@@ -7,6 +7,8 @@ import com.example.data.OverPadRepository
 import com.example.model.ControllerPreset
 import com.example.model.DefaultPresets
 import com.example.overlay.OverlayNotificationHelper
+import com.example.shizuku.PhysicalControllerMonitor
+import com.example.shizuku.PhysicalControllerState
 import com.example.shizuku.ShizukuBridgeManager
 import com.example.usage.ForegroundAppMonitor
 import com.example.xinput.XInputControllerEngine
@@ -16,7 +18,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 data class OverlayRuntimeState(
@@ -44,6 +48,8 @@ class OverPadApplication : Application() {
         private set
     lateinit var shizukuBridge: ShizukuBridgeManager
         private set
+    lateinit var physicalControllerMonitor: PhysicalControllerMonitor
+        private set
 
     private val _overlayState = MutableStateFlow(OverlayRuntimeState())
     val overlayState: StateFlow<OverlayRuntimeState> = _overlayState.asStateFlow()
@@ -65,10 +71,27 @@ class OverPadApplication : Application() {
         shizukuBridge = ShizukuBridgeManager(this).apply {
             initialize()
         }
+        physicalControllerMonitor = PhysicalControllerMonitor(
+            context = this,
+            ownVirtualDeviceIdProvider = { shizukuBridge.status.value.virtualDeviceId },
+            isOverlayActiveProvider = { _overlayState.value.isRunning },
+            onStateChanged = { syncQuickActionNotification() }
+        ).apply {
+            initialize()
+        }
         xInputEngine.onStateUpdated = { state ->
             if (_overlayState.value.isRunning) {
                 shizukuBridge.pushXInputState(state)
             }
+        }
+
+        applicationScope.launch {
+            shizukuBridge.status
+                .map { it.virtualDeviceId }
+                .distinctUntilChanged()
+                .collect {
+                    physicalControllerMonitor.refresh()
+                }
         }
 
         applicationScope.launch {
@@ -88,10 +111,15 @@ class OverPadApplication : Application() {
                 context = this@OverPadApplication,
                 isOverlayRunning = _overlayState.value.isRunning,
                 presetName = initial.name,
-                quickActionEnabled = settings.notificationQuickActionEnabled
+                quickActionEnabled = settings.notificationQuickActionEnabled,
+                isPhysicalControllerConnected = physicalControllerMonitor.refresh().isConnected
             )
             OverlayNotificationHelper.requestTileUpdate(this@OverPadApplication)
         }
+    }
+
+    fun refreshPhysicalControllerState(): PhysicalControllerState {
+        return physicalControllerMonitor.refresh()
     }
 
     fun syncQuickActionNotification() {
@@ -108,7 +136,8 @@ class OverPadApplication : Application() {
                     context = this@OverPadApplication,
                     isOverlayRunning = false,
                     presetName = runtime.activePreset.name,
-                    quickActionEnabled = settings.notificationQuickActionEnabled
+                    quickActionEnabled = settings.notificationQuickActionEnabled,
+                    isPhysicalControllerConnected = physicalControllerMonitor.refresh().isConnected
                 )
             }
             OverlayNotificationHelper.requestTileUpdate(this@OverPadApplication)

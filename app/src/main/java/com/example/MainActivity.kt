@@ -150,6 +150,7 @@ fun OverPadAppRoot(viewModel: OverPadViewModel = viewModel()) {
     val isAppInMultiWindow by viewModel.isAppInMultiWindow.collectAsStateWithLifecycle()
     val xInputState by viewModel.xInputState.collectAsStateWithLifecycle()
     val shizukuStatus by viewModel.shizukuStatus.collectAsStateWithLifecycle()
+    val physicalControllerState by viewModel.physicalControllerState.collectAsStateWithLifecycle()
     val installedApps by viewModel.installedApps.collectAsStateWithLifecycle()
     val isLoadingApps by viewModel.isLoadingApps.collectAsStateWithLifecycle()
     val editingPresetId by viewModel.editingPresetId.collectAsStateWithLifecycle()
@@ -276,6 +277,7 @@ fun OverPadAppRoot(viewModel: OverPadViewModel = viewModel()) {
                                 overlayState = overlayState,
                                 presets = presets,
                                 shizukuStatus = shizukuStatus,
+                                physicalControllerState = physicalControllerState,
                                 hasOverlayPermission = hasOverlayPermission,
                                 isAppInMultiWindow = isAppInMultiWindow,
                                 onStartOverlay = { viewModel.startOverlay(context) },
