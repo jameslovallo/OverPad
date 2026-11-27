@@ -922,5 +922,6 @@ class OverPadEngineTest {
         assertTrue(ControlType.TRIGGER_RT.hasCustomIcon())
         assertTrue(ControlType.BUTTON_BACK.hasCustomIcon())
         assertTrue(ControlType.BUTTON_START.hasCustomIcon())
+        assertTrue(ControlType.SETTINGS.hasCustomIcon())
     }
 }

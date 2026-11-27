@@ -97,12 +97,12 @@ fun OverlaySettingsHud(
     onStopOverlay: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    OverPadTheme(darkTheme = true) {
+    OverPadTheme {
         val preset = runtimeState.activePreset
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.55f))
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.55f))
                 .clickable(onClick = onDismiss),
             contentAlignment = Alignment.Center
         ) {
@@ -113,6 +113,7 @@ fun OverlaySettingsHud(
                     .clickable(enabled = false) {},
                 shape = MaterialTheme.shapes.large,
                 color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.96f),
+                contentColor = MaterialTheme.colorScheme.onSurface,
                 tonalElevation = 8.dp,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
@@ -150,6 +151,7 @@ fun OverlaySettingsHud(
                         Surface(
                             shape = MaterialTheme.shapes.medium,
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.onSurface,
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
                             Row(
@@ -431,7 +433,7 @@ fun OverlayGridEditorScreen(
     onUpdatePreset: (ControllerPreset) -> Unit,
     onFinishEdit: () -> Unit
 ) {
-    OverPadTheme(darkTheme = true) {
+    OverPadTheme {
         var selectedType by remember(preset.id) {
             mutableStateOf(preset.controls.firstOrNull { it.visible }?.type ?: ControlType.TRIGGER_RT)
         }
@@ -656,6 +658,7 @@ fun OverlayGridEditorScreen(
                     },
                 shape = RoundedCornerShape(18.dp),
                 color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f),
+                contentColor = MaterialTheme.colorScheme.onSurface,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
             ) {
                 Column(

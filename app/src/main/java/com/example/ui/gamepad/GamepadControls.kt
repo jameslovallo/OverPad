@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -58,7 +56,6 @@ import com.example.model.ControllerPreset
 import com.example.model.PresetCategory
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.GamepadButtonFontFamily
-import com.example.ui.theme.ObsidianBg
 import com.example.ui.theme.SlateSurfaceElevated
 import com.example.ui.theme.TacticalEmerald
 import com.example.ui.theme.TextPrimary
@@ -1214,23 +1211,28 @@ private fun SettingsOverlayButton(
         }
     } else Modifier
 
+    val contentTint = if (pressed) Color.White else TextPrimary
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .clip(shape)
             .background(
-                if (pressed) ElectricCyan.copy(alpha = 0.45f)
-                else ObsidianBg.copy(alpha = 0.90f)
+                if (pressed) ElectricCyan.copy(alpha = 0.35f)
+                else SlateSurfaceElevated.copy(alpha = 0.92f)
             )
-            .border(1.8.dp, ElectricCyan, shape)
+            .border(
+                width = (if (pressed) 2f else 1.4f).dp,
+                color = if (pressed) ElectricCyan else Color(0xFF475569),
+                shape = shape
+            )
             .then(touchMod),
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = Icons.Default.Settings,
-            contentDescription = "OverPad Overlay Settings",
-            tint = ElectricCyan,
-            modifier = Modifier.size(buttonIconSizeDp(maxWidth.value, maxHeight.value).dp)
+        GamepadControlIcon(
+            controlType = ControlType.SETTINGS,
+            tint = contentTint,
+            size = buttonIconSizeDp(maxWidth.value, maxHeight.value).dp
         )
     }
 }

@@ -57,6 +57,12 @@ fun GamepadControlIcon(
         )
         ControlType.BUTTON_BACK -> BackViewIcon(tint = tint, modifier = modifier.size(size))
         ControlType.BUTTON_START -> MenuTextLinesIcon(tint = tint, modifier = modifier.size(size))
+        ControlType.SETTINGS -> Icon(
+            painter = painterResource(id = R.drawable.ic_overlay_settings_controller),
+            contentDescription = "OverPad Overlay Settings",
+            tint = tint,
+            modifier = modifier.size(size)
+        )
         else -> Unit
     }
 }
@@ -67,7 +73,8 @@ fun ControlType.hasCustomIcon(): Boolean = when (this) {
     ControlType.BUTTON_LB,
     ControlType.BUTTON_RB,
     ControlType.BUTTON_BACK,
-    ControlType.BUTTON_START -> true
+    ControlType.BUTTON_START,
+    ControlType.SETTINGS -> true
     else -> false
 }
 
