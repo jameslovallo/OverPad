@@ -16,8 +16,13 @@ android {
     applicationId = "com.aistudio.operpad.k7m2x9"
     minSdk = 24
     targetSdk = 36
-    versionCode = (project.findProperty("versionCode") as? String)?.toIntOrNull() ?: 1
-    versionName = (project.findProperty("versionName") as? String) ?: "1.0.0"
+    val semanticVersionRegex = Regex("""^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$""")
+    val requestedVersionCode = (project.findProperty("versionCode") as? String)?.trim()?.toIntOrNull()
+    val requestedVersionName = (project.findProperty("versionName") as? String)?.trim()
+
+    // Android/Play Console requires an integer versionCode internally; versionName carries the semantic version.
+    versionCode = maxOf(requestedVersionCode ?: 17, 17)
+    versionName = requestedVersionName?.takeIf { semanticVersionRegex.matches(it) } ?: "1.0.17"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

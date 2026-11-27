@@ -51,32 +51,36 @@ jobs:
         base64 -d debug.keystore.base64 > debug.keystore
         keytool -list -keystore debug.keystore -storepass android -alias androiddebugkey > /dev/null
 
-    # Compute semantic version tag and numeric versionCode from repository history
+    # Compute semantic version tag (minimum baseline v1.0.17) and monotonic integer versionCode for Android/Play Store
     - name: Compute App Version
       id: version
       run: |
         LATEST_TAG=$(git tag -l "v*.*.*" | sort -V | tail -n 1)
         if [ -z "$LATEST_TAG" ]; then
-          NEW_TAG="v1.0.0"
+          NEW_TAG="v1.0.17"
         else
           CLEAN_TAG="${LATEST_TAG#v}"
           MAJOR=$(echo "$CLEAN_TAG" | cut -d. -f1)
           MINOR=$(echo "$CLEAN_TAG" | cut -d. -f2)
           PATCH=$(echo "$CLEAN_TAG" | cut -d. -f3)
-          NEW_PATCH=$((PATCH + 1))
-          NEW_TAG="v${MAJOR}.${MINOR}.${NEW_PATCH}"
+          if [ "$MAJOR" -lt 1 ] || { [ "$MAJOR" -eq 1 ] && [ "$MINOR" -eq 0 ] && [ "$PATCH" -lt 17 ]; }; then
+            NEW_TAG="v1.0.17"
+          else
+            NEW_PATCH=$((PATCH + 1))
+            NEW_TAG="v${MAJOR}.${MINOR}.${NEW_PATCH}"
+          fi
         fi
 
         VERSION_NAME="${NEW_TAG#v}"
-        VERSION_CODE=$(git rev-list --count HEAD 2>/dev/null || echo "1")
-        if [ -z "$VERSION_CODE" ] || [ "$VERSION_CODE" -lt 1 ] 2>/dev/null; then
-          VERSION_CODE=1
+        VERSION_CODE=$(git rev-list --count HEAD 2>/dev/null || echo "17")
+        if [ -z "$VERSION_CODE" ] || [ "$VERSION_CODE" -lt 17 ] 2>/dev/null; then
+          VERSION_CODE=17
         fi
 
         echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
         echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
         echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
-        echo "Computed $APP_NAME ($PACKAGE_NAME) version: $NEW_TAG (code $VERSION_CODE)"
+        echo "Computed $APP_NAME ($PACKAGE_NAME) semantic version: $VERSION_NAME"
 
     # Ensure .env exists for secrets-gradle-plugin (it reads .env, not OS env vars)
     - name: Configure Build Secrets
@@ -150,18 +154,17 @@ jobs:
       run: |
         NEW_TAG="${{ steps.version.outputs.tag }}"
         VERSION_NAME="${{ steps.version.outputs.version_name }}"
-        VERSION_CODE="${{ steps.version.outputs.version_code }}"
 
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
-        git tag -a "$NEW_TAG" -m "Release $APP_NAME $NEW_TAG"
+        git tag -a "$NEW_TAG" -m "Release $APP_NAME $VERSION_NAME"
         git push origin "$NEW_TAG"
 
-        DEBUG_APK="OverPad-${NEW_TAG}-debug.apk"
-        RELEASE_APK="OverPad-${NEW_TAG}-release.apk"
+        DEBUG_APK="OverPad-${VERSION_NAME}-debug.apk"
+        RELEASE_APK="OverPad-${VERSION_NAME}-release.apk"
         cp "app/build/outputs/apk/debug/app-debug.apk" "$DEBUG_APK"
         cp "app/build/outputs/apk/release/app-release.apk" "$RELEASE_APK"
 
         gh release create "$NEW_TAG" "$RELEASE_APK" "$DEBUG_APK" \
-          --title "$APP_NAME $NEW_TAG" \
-          --notes "Automatic release $NEW_TAG (versionCode $VERSION_CODE) for \`$PACKAGE_NAME\` built from commit $(git rev-parse --short HEAD). Both APKs are signed with the same certificate, so release and debug builds can update each other in place."
+          --title "$APP_NAME $VERSION_NAME" \
+          --notes "Automatic release $VERSION_NAME for \`$PACKAGE_NAME\` built from commit $(git rev-parse --short HEAD). Both APKs are signed with the same certificate, so release and debug builds can update each other in place."

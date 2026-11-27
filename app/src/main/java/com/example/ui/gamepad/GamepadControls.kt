@@ -76,6 +76,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
@@ -1236,6 +1237,107 @@ private fun SettingsOverlayButton(
 
 private const val TRIGGER_DRAG_SQUISH_GUARD_DP = 1.5f
 
+internal data class LeftMoveZoneOutput(
+    val active: Boolean,
+    val anchorX: Float,
+    val anchorY: Float,
+    val thumbX: Float,
+    val thumbY: Float,
+    val normX: Float,
+    val normY: Float
+)
+
+/**
+ * Pure-Kotlin state machine for the left tap-anywhere floating thumbstick.
+ * Anchors on touch-down and follows continuous single-direction drags seamlessly
+ * across arbitrary distances via a soft leash, holding steady deflection while
+ * stationary and resetting only when all fingers release.
+ */
+internal class LeftMoveZoneController {
+    var anchorX: Float = 0f
+        private set
+    var anchorY: Float = 0f
+        private set
+    var isActive: Boolean = false
+        private set
+
+    fun onDown(x: Float, y: Float): LeftMoveZoneOutput {
+        anchorX = x
+        anchorY = y
+        isActive = true
+        return LeftMoveZoneOutput(
+            active = true,
+            anchorX = x,
+            anchorY = y,
+            thumbX = x,
+            thumbY = y,
+            normX = 0f,
+            normY = 0f
+        )
+    }
+
+    fun onMove(x: Float, y: Float, densityPx: Float): LeftMoveZoneOutput {
+        val safeDensity = densityPx.coerceAtLeast(0.5f)
+        val maxRadiusPx = (MAX_RADIUS_DP * safeDensity).coerceAtLeast(1f)
+        val leashRadiusPx = maxRadiusPx * LEASH_MULTIPLIER
+
+        if (!isActive) {
+            return onDown(x, y)
+        }
+
+        var dx = x - anchorX
+        var dy = y - anchorY
+        val dist = hypot(dx, dy)
+        if (dist > leashRadiusPx && dist > 0.0001f) {
+            val leashScale = leashRadiusPx / dist
+            anchorX = x - dx * leashScale
+            anchorY = y - dy * leashScale
+            dx = x - anchorX
+            dy = y - anchorY
+        }
+
+        val clampedDist = hypot(dx, dy)
+        val clampedDx: Float
+        val clampedDy: Float
+        if (clampedDist > maxRadiusPx && clampedDist > 0.0001f) {
+            val clampScale = maxRadiusPx / clampedDist
+            clampedDx = dx * clampScale
+            clampedDy = dy * clampScale
+        } else {
+            clampedDx = dx
+            clampedDy = dy
+        }
+
+        return LeftMoveZoneOutput(
+            active = true,
+            anchorX = anchorX,
+            anchorY = anchorY,
+            thumbX = anchorX + clampedDx,
+            thumbY = anchorY + clampedDy,
+            normX = (clampedDx / maxRadiusPx).coerceIn(-1f, 1f),
+            normY = (clampedDy / maxRadiusPx).coerceIn(-1f, 1f)
+        )
+    }
+
+    fun onUp(): LeftMoveZoneOutput {
+        isActive = false
+        return LeftMoveZoneOutput(
+            active = false,
+            anchorX = anchorX,
+            anchorY = anchorY,
+            thumbX = anchorX,
+            thumbY = anchorY,
+            normX = 0f,
+            normY = 0f
+        )
+    }
+
+    companion object {
+        const val MAX_RADIUS_DP = 44f
+        const val LEASH_MULTIPLIER = 1.5f
+    }
+}
+
 /**
  * Left-side tap-anywhere floating thumbstick movement surface.
  * Touch-down anchors a virtual stick origin beneath the finger; dragging deflects
@@ -1247,21 +1349,27 @@ fun LeftMoveZoneSurface(
     engine: XInputControllerEngine?,
     showGuideOverlay: Boolean,
     hapticsEnabled: Boolean = true,
+    onActiveTouchYChanged: ((Float?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     if (!preset.leftMoveZoneEnabled) return
 
     val density = LocalDensity.current
     val view = LocalView.current
+    val moveController = remember { LeftMoveZoneController() }
     var activeMove by remember { mutableStateOf(false) }
     var anchorPos by remember { mutableStateOf(Offset.Zero) }
     var thumbPos by remember { mutableStateOf(Offset.Zero) }
 
     val currentEngine by rememberUpdatedState(engine)
     val currentHaptics by rememberUpdatedState(hapticsEnabled)
+    val currentTouchYCallback by rememberUpdatedState(onActiveTouchYChanged)
 
     DisposableEffect(Unit) {
         onDispose {
+            view.parent?.requestDisallowInterceptTouchEvent(false)
+            currentTouchYCallback?.invoke(null)
+            moveController.onUp()
             currentEngine?.updateLeftMoveZoneStick(0f, 0f)
         }
     }
@@ -1269,11 +1377,10 @@ fun LeftMoveZoneSurface(
     Box(
         modifier = modifier
             .pointerInput(preset.leftMoveZoneEnabled) {
-                val maxRadiusPx = with(density) { 44.dp.toPx() }.coerceAtLeast(1f)
-                val leashRadiusPx = maxRadiusPx * 1.5f
                 awaitPointerEventScope {
                     var activePointerId: PointerId? = null
-                    var currentAnchor = Offset.Zero
+                    var lastEmittedX = 0f
+                    var lastEmittedY = 0f
 
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Main)
@@ -1281,42 +1388,68 @@ fun LeftMoveZoneSurface(
                             val down = event.changes.firstOrNull { it.pressed }
                             if (down != null) {
                                 activePointerId = down.id
-                                currentAnchor = down.position
-                                anchorPos = currentAnchor
-                                thumbPos = currentAnchor
+                                view.parent?.requestDisallowInterceptTouchEvent(true)
+                                val out = moveController.onDown(down.position.x, down.position.y)
+                                anchorPos = Offset(out.anchorX, out.anchorY)
+                                thumbPos = Offset(out.thumbX, out.thumbY)
                                 activeMove = true
+                                currentTouchYCallback?.invoke(down.position.y)
                                 if (currentHaptics) {
                                     view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                                 }
+                                lastEmittedX = 0f
+                                lastEmittedY = 0f
                                 currentEngine?.updateLeftMoveZoneStick(0f, 0f)
-                                down.consume()
+                                event.changes.forEach { if (it.pressed) it.consume() }
                             }
                         } else {
                             val change = event.changes.firstOrNull { it.id == activePointerId }
                             if (change == null || !change.pressed) {
-                                activePointerId = null
-                                activeMove = false
-                                currentEngine?.updateLeftMoveZoneStick(0f, 0f)
-                                change?.consume()
-                            } else {
-                                var delta = change.position - currentAnchor
-                                val dist = hypot(delta.x, delta.y)
-                                if (dist > leashRadiusPx) {
-                                    currentAnchor = change.position - delta * (leashRadiusPx / dist)
-                                    anchorPos = currentAnchor
-                                    delta = change.position - currentAnchor
+                                val handoff = event.changes.firstOrNull {
+                                    it.id != activePointerId && it.pressed
                                 }
-                                val clampedDist = hypot(delta.x, delta.y)
-                                val clamped = if (clampedDist > maxRadiusPx) {
-                                    delta * (maxRadiusPx / clampedDist)
+                                if (handoff != null) {
+                                    activePointerId = handoff.id
+                                    val out = moveController.onDown(handoff.position.x, handoff.position.y)
+                                    anchorPos = Offset(out.anchorX, out.anchorY)
+                                    thumbPos = Offset(out.thumbX, out.thumbY)
+                                    activeMove = true
+                                    currentTouchYCallback?.invoke(handoff.position.y)
+                                    lastEmittedX = 0f
+                                    lastEmittedY = 0f
+                                    currentEngine?.updateLeftMoveZoneStick(0f, 0f)
+                                    event.changes.forEach { it.consume() }
                                 } else {
-                                    delta
+                                    activePointerId = null
+                                    moveController.onUp()
+                                    activeMove = false
+                                    view.parent?.requestDisallowInterceptTouchEvent(false)
+                                    currentTouchYCallback?.invoke(null)
+                                    lastEmittedX = 0f
+                                    lastEmittedY = 0f
+                                    currentEngine?.updateLeftMoveZoneStick(0f, 0f)
+                                    change?.consume()
                                 }
-                                thumbPos = currentAnchor + clamped
-                                val lx = (clamped.x / maxRadiusPx).coerceIn(-1f, 1f)
-                                val ly = (clamped.y / maxRadiusPx).coerceIn(-1f, 1f)
-                                currentEngine?.updateLeftMoveZoneStick(lx, ly)
-                                change.consume()
+                            } else {
+                                val out = moveController.onMove(
+                                    x = change.position.x,
+                                    y = change.position.y,
+                                    densityPx = density.density
+                                )
+                                anchorPos = Offset(out.anchorX, out.anchorY)
+                                thumbPos = Offset(out.thumbX, out.thumbY)
+                                currentTouchYCallback?.invoke(change.position.y)
+                                if (
+                                    abs(out.normX - lastEmittedX) > 0.0005f ||
+                                    abs(out.normY - lastEmittedY) > 0.0005f
+                                ) {
+                                    lastEmittedX = out.normX
+                                    lastEmittedY = out.normY
+                                    currentEngine?.updateLeftMoveZoneStick(out.normX, out.normY)
+                                }
+                                event.changes.forEach {
+                                    if (it.id == activePointerId || it.pressed) it.consume()
+                                }
                             }
                         }
                     }

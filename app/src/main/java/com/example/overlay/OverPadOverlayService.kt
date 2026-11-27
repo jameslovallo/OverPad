@@ -7,6 +7,7 @@ import android.content.pm.ActivityInfo
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
@@ -20,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.app.ServiceCompat
+import androidx.core.view.ViewCompat
 import com.example.MainActivity
 import com.example.OverPadApplication
 import com.example.model.ControlPlacement
@@ -40,6 +42,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class OverPadOverlayService : Service() {
@@ -168,7 +171,6 @@ class OverPadOverlayService : Service() {
                     stopSelf()
                     return START_NOT_STICKY
                 }
-                lastRenderedSignature = null
                 val state = app.overlayState.value
                 syncOverlayWindows(
                     preset = state.activePreset,
@@ -185,7 +187,7 @@ class OverPadOverlayService : Service() {
         super.onConfigurationChanged(newConfig)
         orientationWaitJob?.cancel()
         orientationWaitJob = null
-        lastRenderedSignature = null
+        orientationWaitTimedOut = false
         val state = app.overlayState.value
         syncOverlayWindows(
             preset = state.activePreset,
@@ -375,8 +377,18 @@ class OverPadOverlayService : Service() {
             x = 0,
             y = 0
         )
+        var lastExclusionRect: Rect? = null
+        var activeTouchY: Float? = null
         val view = ComposeView(this).apply {
             lifecycleOwner.attachToView(this)
+            addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                lastExclusionRect = updateEdgeSystemGestureExclusion(
+                    view = v,
+                    isLeftEdge = true,
+                    centerYPx = activeTouchY,
+                    previousRect = lastExclusionRect
+                )
+            }
             setContent {
                 val settings by app.repository.userSettingsFlow.collectAsState(initial = null)
                 OverPadTheme(darkTheme = true) {
@@ -385,6 +397,15 @@ class OverPadOverlayService : Service() {
                         engine = app.xInputEngine,
                         showGuideOverlay = false,
                         hapticsEnabled = settings?.hapticFeedbackEnabled ?: true,
+                        onActiveTouchYChanged = { touchY ->
+                            activeTouchY = touchY
+                            lastExclusionRect = updateEdgeSystemGestureExclusion(
+                                view = this@apply,
+                                isLeftEdge = true,
+                                centerYPx = touchY,
+                                previousRect = lastExclusionRect
+                            )
+                        },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -404,8 +425,17 @@ class OverPadOverlayService : Service() {
             x = halfW,
             y = 0
         )
+        var lastExclusionRect: Rect? = null
         val view = ComposeView(this).apply {
             lifecycleOwner.attachToView(this)
+            addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+                lastExclusionRect = updateEdgeSystemGestureExclusion(
+                    view = v,
+                    isLeftEdge = false,
+                    centerYPx = null,
+                    previousRect = lastExclusionRect
+                )
+            }
             setContent {
                 val settings by app.repository.userSettingsFlow.collectAsState(initial = null)
                 OverPadTheme(darkTheme = true) {
@@ -424,6 +454,42 @@ class OverPadOverlayService : Service() {
             windowManager.addView(view, params)
             fpsZoneView = view
         }
+    }
+
+    private fun updateEdgeSystemGestureExclusion(
+        view: View,
+        isLeftEdge: Boolean,
+        centerYPx: Float?,
+        previousRect: Rect?
+    ): Rect? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return previousRect
+        val width = view.width
+        val height = view.height
+        if (width <= 0 || height <= 0) return previousRect
+
+        val density = view.resources.displayMetrics.density
+        val edgeWidthPx = (48f * density).roundToInt().coerceIn(1, width)
+        // Android caps system gesture exclusion along each vertical edge at 200dp.
+        val bandHeightPx = (200f * density).roundToInt().coerceIn(1, height)
+        val centerY = (centerYPx ?: (height / 2f)).roundToInt().coerceIn(0, height)
+        val maxTop = (height - bandHeightPx).coerceAtLeast(0)
+        val top = (centerY - bandHeightPx / 2).coerceIn(0, maxTop)
+        val bottom = (top + bandHeightPx).coerceAtMost(height)
+        val left = if (isLeftEdge) 0 else (width - edgeWidthPx).coerceAtLeast(0)
+        val right = if (isLeftEdge) edgeWidthPx else width
+
+        val nextRect = Rect(left, top, right, bottom)
+        if (
+            previousRect != null &&
+            previousRect.left == nextRect.left &&
+            previousRect.right == nextRect.right &&
+            abs(previousRect.top - nextRect.top) <= 12 &&
+            abs(previousRect.bottom - nextRect.bottom) <= 12
+        ) {
+            return previousRect
+        }
+        ViewCompat.setSystemGestureExclusionRects(view, listOf(nextRect))
+        return nextRect
     }
 
     private fun attachControlWindow(
@@ -613,11 +679,19 @@ class OverPadOverlayService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_SPLIT_TOUCH,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             screenOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
             this.x = x
             this.y = y
         }

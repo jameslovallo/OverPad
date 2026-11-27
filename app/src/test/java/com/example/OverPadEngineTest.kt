@@ -858,4 +858,53 @@ class OverPadEngineTest {
             )
         )
     }
+
+    @Test
+    fun appVersionName_usesSemanticVersioningAndNeverWholeNumbers() {
+        val semverRegex = Regex("""^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$""")
+        assertTrue(
+            "Expected semantic versionName, got '${BuildConfig.VERSION_NAME}'",
+            semverRegex.matches(BuildConfig.VERSION_NAME)
+        )
+        assertTrue(BuildConfig.VERSION_CODE >= 17)
+    }
+
+    @Test
+    fun leftMoveZoneController_sustainsContinuousSingleDirectionDragAndReversesSmoothly() {
+        val controller = com.example.ui.gamepad.LeftMoveZoneController()
+        val density = 2f // 44dp = 88px, leash = 66dp = 132px
+
+        val down = controller.onDown(200f, 300f)
+        assertTrue(down.active)
+        assertEquals(0f, down.normX, 0.0001f)
+        assertEquals(0f, down.normY, 0.0001f)
+
+        // Simulate 180 frames (3 seconds at 60Hz) dragging continuously up-left, then holding at edge
+        var x = 200f
+        var y = 300f
+        for (frame in 1..180) {
+            if (frame <= 120) {
+                x -= 6f
+                y -= 3f
+            }
+            val out = controller.onMove(x, y, density)
+            assertTrue("Move zone must remain active on frame $frame", out.active)
+            if (frame >= 20) {
+                val mag = kotlin.math.hypot(out.normX, out.normY)
+                assertEquals("Full-tilt magnitude must hold continuously at frame $frame", 1.0f, mag, 0.001f)
+                assertTrue("X must remain negative while dragging/holding left", out.normX < -0.8f)
+                assertTrue("Y must remain negative while dragging/holding up", out.normY < -0.35f)
+            }
+        }
+
+        // Reverse direction by 160px rightwards -> soft leash lets it flip cleanly to positive X
+        val reversed = controller.onMove(x + 160f, y, density)
+        assertTrue(reversed.active)
+        assertTrue("Expected positive X on reversal, got ${reversed.normX}", reversed.normX > 0.25f)
+
+        val up = controller.onUp()
+        assertFalse(up.active)
+        assertEquals(0f, up.normX, 0.0001f)
+        assertEquals(0f, up.normY, 0.0001f)
+    }
 }
