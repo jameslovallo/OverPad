@@ -15,6 +15,8 @@
 .cxx
 local.properties
 .env
+# The decoded keystore is generated locally/CI; keep debug.keystore.base64 committed.
+# It is the single signing identity shared by the debug and release builds.
 debug.keystore
 *.jks
 my-upload-key.jks

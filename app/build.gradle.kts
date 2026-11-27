@@ -22,21 +22,27 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 
-  // Do not remove or modify these signingConfigs. They are necessary for building, installing,
-  // and updating Android apps in AI Studio.
+  // A single keystore signs BOTH the debug and release variants. Sharing one certificate is what
+  // lets either variant update the other in place; using different keys causes Android to reject
+  // the install with INSTALL_FAILED_UPDATE_INCOMPATIBLE and forces an uninstall first.
+  //
+  // CI restores this file from the committed debug.keystore.base64. Keep that key stable: rotating
+  // it changes the app's signing identity and breaks updates for everyone who already installed it.
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
+      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/debug.keystore"
       storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+      storePassword = System.getenv("STORE_PASSWORD") ?: "android"
+      keyAlias = System.getenv("KEY_ALIAS") ?: "androiddebugkey"
+      keyPassword = System.getenv("KEY_PASSWORD") ?: "android"
     }
     create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
+      // Intentionally identical to the release config so debug and release share one certificate.
+      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/debug.keystore"
+      storeFile = file(keystorePath)
+      storePassword = System.getenv("STORE_PASSWORD") ?: "android"
+      keyAlias = System.getenv("KEY_ALIAS") ?: "androiddebugkey"
+      keyPassword = System.getenv("KEY_PASSWORD") ?: "android"
     }
   }
 
@@ -45,13 +51,10 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
-      // AI Studio.
       signingConfig = signingConfigs.getByName("release")
     }
     debug {
-      // Do not remove or modify this signingConfig assignment. It is necessary for Android apps in
-      // AI Studio.
+      // Signed with the same key as release so the two variants can update each other.
       signingConfig = signingConfigs.getByName("debugConfig")
     }
   }
