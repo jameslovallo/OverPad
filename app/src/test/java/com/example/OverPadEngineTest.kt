@@ -10,6 +10,7 @@ import com.example.model.GridSnapper
 import com.example.model.PresetCategory
 import com.example.shizuku.ShizukuConnectionStage
 import com.example.shizuku.ShizukuStatus
+import com.example.ui.gamepad.hasCustomIcon
 import com.example.xinput.DPadDirectionState
 import com.example.xinput.XInputControllerEngine
 import com.example.xinput.XInputState
@@ -906,5 +907,20 @@ class OverPadEngineTest {
         assertFalse(up.active)
         assertEquals(0f, up.normX, 0.0001f)
         assertEquals(0f, up.normY, 0.0001f)
+    }
+
+    @Test
+    fun controlIconsAndLabels_useVectorIconsForBumpersTriggersAndSimpleLRLabels() {
+        assertEquals("L", ControlType.BUTTON_L3.shortLabel)
+        assertEquals("R", ControlType.BUTTON_R3.shortLabel)
+        assertFalse(ControlType.BUTTON_L3.hasCustomIcon())
+        assertFalse(ControlType.BUTTON_R3.hasCustomIcon())
+
+        assertTrue(ControlType.BUTTON_LB.hasCustomIcon())
+        assertTrue(ControlType.BUTTON_RB.hasCustomIcon())
+        assertTrue(ControlType.TRIGGER_LT.hasCustomIcon())
+        assertTrue(ControlType.TRIGGER_RT.hasCustomIcon())
+        assertTrue(ControlType.BUTTON_BACK.hasCustomIcon())
+        assertTrue(ControlType.BUTTON_START.hasCustomIcon())
     }
 }

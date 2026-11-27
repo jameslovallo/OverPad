@@ -56,8 +56,8 @@ import com.example.model.ControlPlacement
 import com.example.model.ControlType
 import com.example.model.ControllerPreset
 import com.example.model.PresetCategory
-import com.example.ui.theme.ChakraPetchFontFamily
 import com.example.ui.theme.ElectricCyan
+import com.example.ui.theme.GamepadButtonFontFamily
 import com.example.ui.theme.ObsidianBg
 import com.example.ui.theme.SlateSurfaceElevated
 import com.example.ui.theme.TacticalEmerald
@@ -1033,7 +1033,7 @@ private fun FaceButtonWidget(
         val minDim = minOf(maxWidth, maxHeight)
         Text(
             text = controlType.shortLabel,
-            fontFamily = ChakraPetchFontFamily,
+            fontFamily = GamepadButtonFontFamily,
             fontWeight = FontWeight.Bold,
             fontSize = (minDim.value * 0.34f).sp,
             color = if (effectivePressed) Color.White else accentColor
@@ -1141,9 +1141,9 @@ private fun CapsuleGamepadButton(
         } else {
             Text(
                 text = controlType.shortLabel,
-                fontFamily = ChakraPetchFontFamily,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = (minDim.value * 0.28f).sp,
+                fontFamily = GamepadButtonFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = if (controlType.shortLabel.length == 1) (minDim.value * 0.34f).sp else (minDim.value * 0.28f).sp,
                 color = contentTint
             )
         }

@@ -26,6 +26,12 @@ val JetBrainsMonoFontFamily = FontFamily(
     Font(R.font.jetbrains_mono, FontWeight.Medium)
 )
 
+val GamepadButtonFontFamily = FontFamily(
+    Font(R.font.nunito, FontWeight.Normal),
+    Font(R.font.nunito, FontWeight.SemiBold),
+    Font(R.font.nunito, FontWeight.Bold)
+)
+
 val OverPadTypography = Typography(
     displaySmall = TextStyle(
         fontFamily = ChakraPetchFontFamily,

@@ -142,7 +142,7 @@ enum class ControlType(
     ),
     BUTTON_L3(
         displayName = "Left Stick Click",
-        shortLabel = "L3",
+        shortLabel = "L",
         xinputBinding = "XINPUT_GAMEPAD_LEFT_THUMB (0x0040)",
         androidCodeSummary = "KEYCODE_BUTTON_THUMBL",
         baseWidthDp = 54f,
@@ -152,7 +152,7 @@ enum class ControlType(
     ),
     BUTTON_R3(
         displayName = "Right Stick Click",
-        shortLabel = "R3",
+        shortLabel = "R",
         xinputBinding = "XINPUT_GAMEPAD_RIGHT_THUMB (0x0080)",
         androidCodeSummary = "KEYCODE_BUTTON_THUMBR",
         baseWidthDp = 54f,
